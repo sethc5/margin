@@ -81,6 +81,8 @@ class AnomalyClassification:
 
     def to_atom(self) -> str:
         """Compact string: component:STATE(±z σ)"""
+        if math.isinf(self.z_score) or math.isnan(self.z_score):
+            return f"{self.component}:{self.state.value}"
         sign = "+" if self.z_score >= 0 else ""
         return f"{self.component}:{self.state.value}({sign}{self.z_score:.2f}σ)"
 
@@ -456,19 +458,31 @@ def check_distribution(
 # Jump detection
 # -----------------------------------------------------------------------
 
+def _median(xs: list[float]) -> float:
+    """Median of a list."""
+    s = sorted(xs)
+    n = len(s)
+    if n % 2 == 1:
+        return s[n // 2]
+    return (s[n // 2 - 1] + s[n // 2]) / 2.0
+
+
 def detect_jumps(
     observations: list[Observation],
     jump_threshold: float = 3.0,
+    window: int = 5,
 ) -> list[Jump]:
     """
     Find sudden discontinuities in an observation sequence.
 
-    A jump is when consecutive values differ by more than `jump_threshold`
-    standard deviations of the series' step-to-step differences.
+    Each step-to-step difference is compared against a local window of
+    surrounding differences using robust statistics (median + MAD).
+    This prevents a spike from inflating the statistics used to detect it.
 
     Args:
         observations:    ordered observations for one component
-        jump_threshold:  minimum σ of step differences to count as a jump
+        jump_threshold:  minimum robust z-score to count as a jump (default 3.0)
+        window:          half-width of the local comparison window (default 5)
 
     Returns list of Jump objects (may be empty).
     """
@@ -477,22 +491,37 @@ def detect_jumps(
 
     values = [o.value for o in observations]
     component = observations[0].name
-
-    # Step-to-step differences
     diffs = [values[i + 1] - values[i] for i in range(len(values) - 1)]
+    n_diffs = len(diffs)
 
-    if not diffs:
-        return []
-
-    diff_mean = _mean(diffs)
-    diff_std = _std(diffs, diff_mean)
-
-    if diff_std == 0:
+    if n_diffs < 2:
         return []
 
     jumps = []
     for i, d in enumerate(diffs):
-        z = (d - diff_mean) / diff_std
+        # Local window: surrounding diffs excluding self
+        local = [diffs[j] for j in range(max(0, i - window), min(n_diffs, i + window + 1))
+                 if j != i]
+        if not local:
+            continue
+
+        local_med = _median(local)
+        abs_devs = [abs(x - local_med) for x in local]
+        mad = _median(abs_devs)
+
+        if mad > 0:
+            # Robust z-score: MAD * 1.4826 ≈ std for normal distributions
+            scale = mad * 1.4826
+            z = (d - local_med) / scale
+        else:
+            # Local diffs are all identical — any deviation is a jump
+            deviation = abs(d - local_med)
+            if deviation == 0:
+                continue
+            # Assign z proportional to deviation size; use series range as reference
+            val_range = max(values) - min(values)
+            z = (d - local_med) / (val_range / (jump_threshold * 3)) if val_range > 0 else float('inf')
+
         if abs(z) >= jump_threshold:
             jumps.append(Jump(
                 component=component,

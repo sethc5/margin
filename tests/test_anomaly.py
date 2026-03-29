@@ -125,6 +125,12 @@ class TestClassifyAnomaly:
         assert "cpu" in atom
         assert "σ" in atom
 
+    def test_inf_z_score_atom(self):
+        """Zero-std reference produces inf z-score — atom should be clean."""
+        ac = classify_anomaly(43.0, [42.0] * 10, component="x")
+        assert "inf" not in ac.to_atom()
+        assert ac.to_atom() == "x:NOVEL"
+
     def test_custom_thresholds(self):
         ref = [100.0, 100.0, 100.0, 101.0, 99.0, 100.0, 100.0, 100.0, 101.0, 99.0]
         # With very tight thresholds
@@ -213,6 +219,14 @@ class TestJumpDetection:
         jumps = detect_jumps(obs, jump_threshold=2.5)
         assert len(jumps) >= 1
         # The jump should be around index 5
+        assert any(j.at_index == 5 for j in jumps)
+
+    def test_spike_in_constant_default_threshold(self):
+        """A spike in a constant series should be detected at default threshold."""
+        values = [50, 50, 50, 50, 50, 150, 50, 50, 50, 50]
+        obs = [_obs("x", v) for v in values]
+        jumps = detect_jumps(obs)  # default threshold=3.0
+        assert len(jumps) >= 1
         assert any(j.at_index == 5 for j in jumps)
 
     def test_jump_magnitude(self):
