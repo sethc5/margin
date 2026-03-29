@@ -18,7 +18,7 @@ Structure:
 from .confidence import Confidence
 from .validity import Validity, ValidityMode
 from .provenance import new_id, are_correlated, merge
-from .uncertain import UncertainValue, Source
+from .uncertain import UncertainValue, Source, EpistemicSource, UncertaintyMode
 from .algebra import add, subtract, multiply, divide, scale, compare, weighted_average
 from .health import Health, Thresholds, classify, SEVERITY
 from .observation import Op, Observation, Correction, Expression, Parser
@@ -174,4 +174,25 @@ __all__ = [
     "save_monitor", "load_monitor", "replay", "replay_csv",
     # Loop
     "StepResult", "step", "run", "FullStepResult", "full_step",
+    # margin-poc compat aliases
+    "EpistemicSource", "UncertaintyMode",
+    "CallConfidence", "CircuitHealth", "GapThresholds", "MarginParser",
+    "CircuitUtterance", "CorrectionOp", "MarginExpression",
+    "CorrectionRequest", "CorrectionRecord", "CorrectionLedger",
+    "classify_gap_health", "compare_to_threshold", "merge_provenance",
 ]
+
+# margin-poc backward-compatible type aliases
+CallConfidence = Confidence
+CircuitHealth = Health
+GapThresholds = Thresholds
+MarginParser = Parser
+CircuitUtterance = Observation
+CorrectionOp = Op
+MarginExpression = Expression
+CorrectionRequest = Correction
+CorrectionRecord = Record
+CorrectionLedger = Ledger
+classify_gap_health = classify
+compare_to_threshold = compare
+merge_provenance = merge

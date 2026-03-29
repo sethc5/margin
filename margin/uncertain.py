@@ -16,32 +16,55 @@ class Source:
     MODELED = "modeled"        # derived from a formal model
     ASSERTED = "asserted"      # declared by the caller
     PROPAGATED = "propagated"  # derived by the algebra
+    COMPUTED = "modeled"       # alias for margin-poc compat (EpistemicSource.COMPUTED)
+    INFERRED = "modeled"       # alias
+
+# margin-poc compat aliases
+EpistemicSource = Source
+UncertaintyMode = type('UncertaintyMode', (), {'ABSOLUTE': 'absolute', 'RELATIVE': 'relative'})()
 
 
-@dataclass
 class UncertainValue:
     """
     A scalar value with associated uncertainty and epistemic metadata.
 
-    point:       central estimate
+    point:       central estimate (alias: point_estimate)
     uncertainty: magnitude (absolute or relative, per `relative` flag)
-    relative:    if True, uncertainty is a fraction of |point|
+    relative:    if True, uncertainty is a fraction of |point| (alias: mode)
     source:      how this value was produced (Source constant)
     validity:    temporal validity descriptor
-    provenance:  list of ancestor IDs for correlation detection
+    provenance:  list of ancestor IDs for correlation detection (alias: provenance_ids)
     """
-    point: float
-    uncertainty: float
-    relative: bool = False
-    source: str = Source.MEASURED
-    validity: Validity = None
-    provenance: list[str] = None
 
-    def __post_init__(self):
-        if self.validity is None:
-            self.validity = Validity.static()
-        if self.provenance is None:
-            self.provenance = [new_id()]
+    def __init__(
+        self,
+        point: float = None,
+        uncertainty: float = 0.0,
+        relative: bool = False,
+        source: str = Source.MEASURED,
+        validity: Validity = None,
+        provenance: list = None,
+        # margin-poc compat aliases
+        point_estimate: float = None,
+        mode: str = None,
+        provenance_ids: list = None,
+    ):
+        self.point = point if point is not None else (point_estimate if point_estimate is not None else 0.0)
+        self.uncertainty = uncertainty
+        self.relative = relative if mode is None else (mode == "relative")
+        self.source = source
+        self.validity = validity if validity is not None else Validity.static()
+        self.provenance = provenance or provenance_ids or [new_id()]
+
+    @property
+    def point_estimate(self) -> float:
+        """margin-poc compat alias for point."""
+        return self.point
+
+    @property
+    def provenance_ids(self) -> list:
+        """margin-poc compat alias for provenance."""
+        return self.provenance
 
     def absolute_uncertainty(self, at_time: Optional[datetime] = None) -> float:
         """Effective absolute uncertainty, accounting for temporal decay."""
