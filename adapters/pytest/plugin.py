@@ -21,6 +21,7 @@ from pathlib import Path
 from typing import Optional
 
 from margin.health import Health, SEVERITY
+from margin.confidence import Confidence
 
 _results: dict = {
     "passed": 0,
@@ -29,6 +30,7 @@ _results: dict = {
     "errors": 0,
     "flaky": 0,
     "durations": [],
+    "test_durations": [],  # (nodeid, duration) pairs for slowest callout
     "start_time": 0.0,
     "per_file": defaultdict(lambda: {"passed": 0, "failed": 0, "skipped": 0, "durations": []}),
 }
@@ -47,6 +49,7 @@ def pytest_runtest_logreport(report) -> None:
         elif report.skipped:
             _results["skipped"] += 1
         _results["durations"].append(report.duration)
+        _results["test_durations"].append((report.nodeid, report.duration))
 
         # Per-file tracking
         fpath = report.fspath if hasattr(report, "fspath") else str(report.nodeid).split("::")[0]
@@ -80,6 +83,18 @@ def _build_suite_metrics() -> dict[str, float]:
     }
     if durations:
         metrics["mean_test_duration"] = sum(durations) / len(durations)
+
+    # Coverage — read from pytest-cov if available
+    try:
+        cov_path = Path(".coverage")
+        if cov_path.exists():
+            import coverage
+            cov = coverage.Coverage()
+            cov.load()
+            total = cov.report(file=open("/dev/null", "w"))
+            metrics["coverage"] = total / 100.0
+    except Exception:
+        pass  # no pytest-cov or no .coverage file — skip
 
     return metrics
 
@@ -115,6 +130,19 @@ def pytest_terminal_summary(terminalreporter, exitstatus, config) -> None:
     # ── Print suite health ──
     terminalreporter.section("margin health")
     terminalreporter.write_line(expr.to_string())
+
+    # ── Slowest tests ──
+    n_slow = config.getoption("--margin-slowest", default=0)
+    if n_slow and n_slow > 0:
+        from .suite import TEST_METRICS
+        slow_thresh = TEST_METRICS["mean_test_duration"].thresholds
+        sorted_tests = sorted(_results["test_durations"], key=lambda x: x[1], reverse=True)
+        terminalreporter.write_line("")
+        terminalreporter.write_line(f"Slowest {min(n_slow, len(sorted_tests))} tests:")
+        for nodeid, dur in sorted_tests[:n_slow]:
+            from margin.health import classify
+            h = classify(dur, Confidence.HIGH, thresholds=slow_thresh)
+            terminalreporter.write_line(f"  {h.value:12s} {dur:7.3f}s  {nodeid}")
 
     # ── Per-file breakdown ──
     if config.getoption("--margin-per-file", default=False):
@@ -209,6 +237,12 @@ def pytest_addoption(parser) -> None:
         action="store_true",
         default=False,
         help="Show per-file health breakdown.",
+    )
+    group.addoption(
+        "--margin-slowest",
+        type=int,
+        default=0,
+        help="Show N slowest tests with health classification.",
     )
 
 
