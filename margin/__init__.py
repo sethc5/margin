@@ -97,6 +97,9 @@ from .streaming import DriftTracker, AnomalyTracker, CorrelationTracker, Monitor
 # Config
 from .config import from_config, load_config
 
+# Persistence
+from .persist import save_monitor, load_monitor, replay, replay_csv
+
 # Loop
 from .loop import StepResult, step, run
 
@@ -160,6 +163,8 @@ __all__ = [
     "DriftTracker", "AnomalyTracker", "CorrelationTracker", "Monitor",
     # Config
     "from_config", "load_config",
+    # Persistence
+    "save_monitor", "load_monitor", "replay", "replay_csv",
     # Loop
     "StepResult", "step", "run",
 ]

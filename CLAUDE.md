@@ -101,6 +101,9 @@ CLI options: `--margin-fail-below=DEGRADED`, `--margin-per-file`, `--margin-base
 - `Monitor` — streaming tracker: one `update()` for health + drift + anomaly + correlation
 - `DriftTracker` / `AnomalyTracker` / `CorrelationTracker` — per-concern incremental trackers
 - `from_config()` / `load_config()` — build Parser + Policy + Contract from dict/YAML/JSON
+- `save_monitor()` / `load_monitor()` — persist and restore Monitor state across restarts
+- `replay()` / `replay_csv()` — batch replay historical data through Monitor
+- CLI: `python -m margin status`, `python -m margin monitor`, `python -m margin replay`
 
 ## Full loop
 

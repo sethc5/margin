@@ -53,6 +53,8 @@ Then the correction loop:
 - **Auto-correlation** — discover which components move together from data, with lag detection
 - **Streaming** — incremental trackers: `Monitor.update(values)` updates health + drift + anomaly + correlation in one call
 - **Config** — define everything in YAML/JSON: `margin.load_config("margin.yaml")`
+- **Persistence** — save/restore Monitor state across restarts, batch replay from CSV
+- **CLI** — `python -m margin status`, `monitor`, `replay` — no Python code required
 - **Ledger** — full audit trail of every correction, serializable, replayable
 
 All in one call:

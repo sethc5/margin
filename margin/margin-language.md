@@ -1739,6 +1739,70 @@ of how long the loop runs.
 
 ---
 
+## `persist.py` — Save, restore, and replay
+
+### Save and restore Monitor state
+
+```python
+from margin import Monitor, save_monitor, load_monitor
+
+monitor = Monitor(parser)
+# ... run for a while ...
+
+save_monitor(monitor, "state.json")
+
+# Later, after restart:
+monitor = load_monitor("state.json", parser)
+# All tracker windows, step count, and drift classifications restored
+```
+
+The state file is plain JSON. Drift trackers are reclassified from
+restored observations on load.
+
+### Batch replay
+
+Feed historical data through a Monitor and get typed analysis:
+
+```python
+from margin import replay, replay_csv
+
+# From a list of dicts
+data = [{"cpu": 80, "mem": 60}, {"cpu": 75, "mem": 58}, ...]
+monitor, snapshots = replay(parser, data)
+
+# From a CSV file
+monitor, snapshots = replay_csv(parser, "metrics.csv", timestamp_column="time")
+```
+
+Each snapshot is a `monitor.status()` dict. After replay:
+
+- `monitor.drift("cpu")` — trajectory over the full history
+- `monitor.anomaly("cpu")` — final anomaly state
+- `monitor.correlations` — discovered correlations
+- `snapshots` — per-step analysis for retrospective review
+
+---
+
+## CLI — `python -m margin`
+
+Three commands, no Python required:
+
+```bash
+# One-shot: classify values from the command line
+python -m margin status --config margin.json cpu=48 mem=65
+
+# Stream: read JSON lines from stdin, print health/drift/anomaly
+echo '{"cpu": 48, "mem": 65}' | python -m margin monitor --config margin.json
+
+# Replay: analyze a CSV file
+python -m margin replay --config margin.json --data metrics.csv --output analysis.json
+```
+
+The monitor command also accepts `key=value,key=value` CSV format on stdin.
+Drift and anomaly annotations are printed when non-trivial (not STABLE/EXPECTED).
+
+---
+
 ## `config.py` — Config-driven setup
 
 Define Parser, Policy, and Contract from a dict, JSON, or YAML file
@@ -1853,7 +1917,9 @@ margin/
 │ Loop + Streaming + Config
 ├── loop.py                   step(), run(), StepResult
 ├── streaming.py              DriftTracker, AnomalyTracker, CorrelationTracker, Monitor
+├── persist.py                save_monitor(), load_monitor(), replay(), replay_csv()
 ├── config.py                 from_config(), load_config(), predicate registry
+├── __main__.py               CLI: monitor, replay, status commands
 │
 │ Policy
 └── policy/
