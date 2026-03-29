@@ -314,8 +314,10 @@ def classify_anomaly(
     abs_z = abs(z)
 
     # Novelty check: beyond historical range with margin
+    # Margin is the larger of: fraction of range, or 1 std deviation.
+    # This prevents tiny ranges from making barely-outside values NOVEL.
     ref_range = ref_max - ref_min
-    margin = max(ref_range * novel_margin, ref_std * 0.1) if ref_range > 0 else ref_std * 0.5
+    margin = max(ref_range * novel_margin, ref_std) if ref_range > 0 else ref_std * 2.0
     is_novel = value < (ref_min - margin) or value > (ref_max + margin)
 
     # Classification
