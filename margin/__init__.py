@@ -106,7 +106,7 @@ from .intent import (
 )
 
 # Loop
-from .loop import StepResult, step, run
+from .loop import StepResult, step, run, FullStepResult, full_step
 
 __all__ = [
     # Foundation
@@ -173,5 +173,5 @@ __all__ = [
     # Persistence
     "save_monitor", "load_monitor", "replay", "replay_csv",
     # Loop
-    "StepResult", "step", "run",
+    "StepResult", "step", "run", "FullStepResult", "full_step",
 ]

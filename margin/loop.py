@@ -1,11 +1,17 @@
 """
-The evaluation loop: orchestrates all five layers into one call.
+The evaluation loop: orchestrates all layers into one call.
 
 observe → explain → decide → evaluate → record
 
-Takes an Expression, a CausalGraph, a Policy, a Contract, and a Ledger,
-runs each layer in order, and returns a typed StepResult that bundles
-everything together.
+Architecture:
+  Monitor.update()     — every measurement (health + drift + anomaly + correlation)
+  step()               — when you need a decision (explain + policy + contract)
+  intent.evaluate()    — when you need a feasibility check (goal + deadline + ETA)
+
+step() and run() handle the policy/contract/causal layers.
+For drift/anomaly/correlation, use Monitor (streaming.py).
+For goal feasibility, use Intent (intent.py).
+full_step() combines all three in one call.
 """
 
 from __future__ import annotations
@@ -190,3 +196,129 @@ def run(
         results.append(result)
 
     return results, ledger
+
+
+# -----------------------------------------------------------------------
+# full_step — all layers in one call
+# -----------------------------------------------------------------------
+
+@dataclass
+class FullStepResult:
+    """
+    Complete output of one full evaluation across all 8 layers.
+
+    step:       policy/contract/causal evaluation
+    drift:      per-component drift classifications
+    anomaly:    per-component anomaly classifications
+    correlations: discovered component correlations
+    intent:     goal feasibility (if intent provided)
+    """
+    step: StepResult
+    drift: dict = field(default_factory=dict)
+    anomaly: dict = field(default_factory=dict)
+    correlations: Optional[object] = None  # CorrelationMatrix
+    intent: Optional[object] = None        # IntentResult
+
+    @property
+    def expression(self) -> Expression:
+        return self.step.expression
+
+    @property
+    def acted(self) -> bool:
+        return self.step.acted
+
+    @property
+    def feasible(self) -> Optional[bool]:
+        if self.intent is None:
+            return None
+        return self.intent.feasible
+
+    def to_dict(self) -> dict:
+        d = self.step.to_dict()
+        if self.drift:
+            d["drift"] = {k: v.to_dict() for k, v in self.drift.items()}
+        if self.anomaly:
+            d["anomaly"] = {k: v.to_dict() for k, v in self.anomaly.items()}
+        if self.intent:
+            d["intent"] = self.intent.to_dict()
+        return d
+
+    def to_string(self) -> str:
+        lines = [self.step.to_string()]
+        for name, dc in self.drift.items():
+            if dc.state.value != "STABLE":
+                lines.append(f"  Drift({name}): {dc.state.value}({dc.direction.value})")
+        for name, ac in self.anomaly.items():
+            if ac.state.value != "EXPECTED":
+                lines.append(f"  Anomaly({name}): {ac.state.value}")
+        if self.intent:
+            lines.append(f"  Intent: {self.intent.summary()}")
+        return "\n".join(lines)
+
+    def __repr__(self) -> str:
+        action = "CORRECT" if self.acted else "NOOP"
+        intent_str = f", intent={self.intent.feasibility.value}" if self.intent else ""
+        return f"FullStepResult({action}{intent_str})"
+
+
+def full_step(
+    monitor,
+    values: dict[str, float],
+    policy: Policy,
+    ledger: Optional[Ledger] = None,
+    graph: Optional[CausalGraph] = None,
+    contract: Optional[Contract] = None,
+    intent: Optional[object] = None,
+    now=None,
+) -> FullStepResult:
+    """
+    Run ALL layers in one call:
+      1. Monitor.update() → health + drift + anomaly + correlation
+      2. step() → explain + decide + contract
+      3. Intent.evaluate() → goal feasibility
+
+    Args:
+        monitor:   streaming Monitor
+        values:    raw measurements {component: value}
+        policy:    decision policy
+        ledger:    correction ledger (optional)
+        graph:     causal graph (optional)
+        contract:  success contract (optional)
+        intent:    Intent goal (optional)
+        now:       current timestamp (optional)
+
+    Returns FullStepResult with all 8 layers evaluated.
+    """
+    from datetime import datetime
+
+    now = now or datetime.now()
+
+    # Layer 1-4: health + drift + anomaly + correlation
+    expr = monitor.update(values, now=now)
+
+    # Layer 5-7: explain + decide + contract
+    step_result = step(expr, policy, ledger, graph, contract)
+
+    # Collect drift/anomaly from monitor
+    drift_map = {}
+    anomaly_map = {}
+    for name in monitor.parser.baselines:
+        dc = monitor.drift(name)
+        if dc:
+            drift_map[name] = dc
+        ac = monitor.anomaly(name)
+        if ac:
+            anomaly_map[name] = ac
+
+    # Layer 8: intent feasibility
+    intent_result = None
+    if intent is not None:
+        intent_result = intent.evaluate(expr, drift_map, now)
+
+    return FullStepResult(
+        step=step_result,
+        drift=drift_map,
+        anomaly=anomaly_map,
+        correlations=monitor.correlations,
+        intent=intent_result,
+    )
