@@ -103,6 +103,22 @@ parser = parser_from_calibration(
 
 Plus `step()` and `run()` to orchestrate all five in one call.
 
+## Domain adapters
+
+Ready-to-use threshold profiles for specific domains:
+
+| Adapter | What it monitors | Polarity |
+|---|---|---|
+| [**healthcare**](adapters/healthcare/) | Vital signs (HR, BP, SpO2, temp, glucose) — WHO/AHA ranges, sepsis screening | bands |
+| [**godot**](https://github.com/sethc5/margin-godot) | Game systems (food, morale, stress, stamina) — native GDScript | mixed |
+| [**homeassistant**](adapters/homeassistant/) | Smart home sensors (temp, humidity, battery, solar, power) | mixed |
+| [**evcharging**](adapters/evcharging/) | EV charging (SoC, grid draw, solar surplus, efficiency) | mixed |
+| [**infrastructure**](adapters/infrastructure/) | Server monitoring (CPU, memory, disk, latency, error rate) | mixed |
+| [**aquarium**](adapters/aquarium/) | Water chemistry (pH, ammonia, nitrite, temp, hardness) | bands |
+| [**greenhouse**](adapters/greenhouse/) | Growing environment (soil moisture, CO₂, light, VPD) | bands |
+| [**fitness**](adapters/fitness/) | Wearables (resting HR, HRV, sleep, steps, stress) | mixed |
+| [**transformer**](adapters/transformer/) | ML circuit interpretability (pythia-6.9b) | higher |
+
 ## Docs
 
 Full specification: [margin-language.md](margin/margin-language.md)
