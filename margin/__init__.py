@@ -100,6 +100,11 @@ from .config import from_config, load_config
 # Persistence
 from .persist import save_monitor, load_monitor, replay, replay_csv
 
+# Intent
+from .intent import (
+    Feasibility, Requirement, RiskFactor, IntentResult, Intent,
+)
+
 # Loop
 from .loop import StepResult, step, run
 
@@ -159,6 +164,8 @@ __all__ = [
     # Causal
     "CauseType", "CausalLink", "CausalGraph",
     "CauseExplanation", "Explanation",
+    # Intent
+    "Feasibility", "Requirement", "RiskFactor", "IntentResult", "Intent",
     # Streaming
     "DriftTracker", "AnomalyTracker", "CorrelationTracker", "Monitor",
     # Config

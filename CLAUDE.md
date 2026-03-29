@@ -102,6 +102,7 @@ CLI options: `--margin-fail-below=DEGRADED`, `--margin-per-file`, `--margin-base
 - `auto_causal_graph()` — build CausalGraph from data instead of manual edges
 - `Monitor` — streaming tracker: one `update()` for health + drift + anomaly + correlation
 - `DriftTracker` / `AnomalyTracker` / `CorrelationTracker` — per-concern incremental trackers
+- `Intent` — goal feasibility: FEASIBLE / AT_RISK / INFEASIBLE with ETA to violation
 - `from_config()` / `load_config()` — build Parser + Policy + Contract from dict/YAML/JSON
 - `save_monitor()` / `load_monitor()` — persist and restore Monitor state across restarts
 - `replay()` / `replay_csv()` — batch replay historical data through Monitor
