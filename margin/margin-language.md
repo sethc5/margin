@@ -986,6 +986,110 @@ Serialisation: `DriftClassification.to_dict()` / `from_dict()` roundtrips cleanl
 
 ---
 
+## `anomaly.py` — Statistical outlier detection
+
+Health tells you IS IT GOOD. Drift tells you IS IT CHANGING.
+Anomaly tells you IS THIS NORMAL. A value can be INTACT and STABLE
+but at a level never seen before — anomaly catches that.
+
+### Anomaly states
+
+| State | Meaning |
+| ----- | ------- |
+| `EXPECTED` | Value within normal statistical range of reference data |
+| `UNUSUAL` | Uncommon (beyond 2σ) but not extreme |
+| `ANOMALOUS` | Statistical outlier (beyond 3σ) |
+| `NOVEL` | Outside the entire historical range — never seen before |
+
+### Point anomaly
+
+Classify a single value against a reference distribution:
+
+```python
+from margin import classify_anomaly, AnomalyState
+
+ref = [100, 101, 99, 100, 102, 98, 101, 99, 100, 100]
+
+ac = classify_anomaly(100.5, ref, component="cpu")
+ac.state       # AnomalyState.EXPECTED
+ac.z_score     # how many σ from historical mean
+ac.is_novel    # True if outside historical range entirely
+
+ac = classify_anomaly(500.0, ref, component="cpu")
+ac.state       # AnomalyState.NOVEL
+```
+
+From Observation objects:
+
+```python
+from margin import classify_anomaly_obs
+
+ac = classify_anomaly_obs(current_observation, history_observations)
+```
+
+### Distribution shift
+
+Compare two sample distributions (recent vs reference) for
+mean shift, spread change, or shape change:
+
+```python
+from margin import check_distribution
+
+ds = check_distribution(recent_values, reference_values, component="cpu")
+ds.mean_shift       # relative change in mean
+ds.std_ratio        # recent_std / ref_std
+ds.kurtosis_delta   # change in tail weight
+ds.skew_delta       # change in asymmetry
+ds.state            # EXPECTED, UNUSUAL, or ANOMALOUS
+ds.shifted          # True if state != EXPECTED
+```
+
+### Jump detection
+
+Find sudden discontinuities — values that teleport rather than drift:
+
+```python
+from margin import detect_jumps
+
+jumps = detect_jumps(observations, jump_threshold=3.0)
+for j in jumps:
+    j.magnitude_sigma   # size of jump in σ of step-to-step differences
+    j.value_before      # value before the jump
+    j.value_after       # value after the jump
+    j.at_index          # index in observation sequence
+```
+
+### Anomaly from Ledger
+
+```python
+from margin import anomaly_from_ledger, anomaly_all_from_ledger
+from margin import distribution_shift_from_ledger
+
+ac = anomaly_from_ledger(ledger, "cpu")            # latest value vs history
+all_ac = anomaly_all_from_ledger(ledger)            # all components
+ds = distribution_shift_from_ledger(ledger, "cpu")  # recent vs earlier
+```
+
+### Anomaly predicates
+
+```python
+from margin import any_anomalous, any_novel, is_novel, anomaly_is
+from margin import PolicyRule, Action, Op, AnomalyState
+
+rule = PolicyRule("anomaly-alert", any_anomalous(ledger),
+                  Action(target="*", op=Op.RESTORE), priority=25)
+
+rule = PolicyRule("novel-halt", any_novel(ledger),
+                  Action(target="*", op=Op.NOOP), priority=40)
+```
+
+Thresholds are configurable: `unusual_threshold` (default 2σ),
+`anomalous_threshold` (default 3σ), `novel_margin` (default 10% beyond range).
+
+Serialisation: all types support `to_dict()` / `from_dict()` roundtrip.
+
+---
+
 ## `predicates.py` — Expression pattern matching
 
 Declarative rules for evaluating Expressions. Define conditions and
@@ -1539,6 +1643,7 @@ margin/
 ├── composite.py              CompositeObservation
 ├── diff.py                   Expression diffing
 ├── events.py                 EventBus
+├── anomaly.py                Statistical outlier detection, distribution shift, jump detection
 ├── drift.py                  Trajectory classification, predicates, forecast composition
 ├── forecast.py               Trend projection
 ├── predicates.py             Pattern matching, combinators, Rule

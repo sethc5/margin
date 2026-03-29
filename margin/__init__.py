@@ -30,6 +30,15 @@ from .calibrate import CalibrationResult, calibrate, calibrate_many, parser_from
 from .composite import CompositeObservation, AggregateStrategy
 from .diff import ComponentChange, Diff, diff
 from .events import EventBus
+from .anomaly import (
+    AnomalyState, ANOMALY_SEVERITY, AnomalyClassification,
+    DistributionShift, Jump,
+    classify_anomaly, classify_anomaly_obs,
+    check_distribution, detect_jumps,
+    anomaly_from_ledger, anomaly_all_from_ledger,
+    distribution_shift_from_ledger,
+    anomaly_is, any_anomalous, any_novel, is_novel,
+)
 from .drift import (
     DriftState, DriftDirection, DriftClassification,
     classify_drift, classify_drift_all,
@@ -92,6 +101,13 @@ __all__ = [
     "CalibrationResult", "calibrate", "calibrate_many", "parser_from_calibration",
     "CompositeObservation", "AggregateStrategy",
     "ComponentChange", "Diff", "diff",
+    "AnomalyState", "ANOMALY_SEVERITY", "AnomalyClassification",
+    "DistributionShift", "Jump",
+    "classify_anomaly", "classify_anomaly_obs",
+    "check_distribution", "detect_jumps",
+    "anomaly_from_ledger", "anomaly_all_from_ledger",
+    "distribution_shift_from_ledger",
+    "anomaly_is", "any_anomalous", "any_novel", "is_novel",
     "DriftState", "DriftDirection", "DriftClassification", "classify_drift", "classify_drift_all",
     "drift_observations_from_ledger", "drift_from_ledger", "drift_all_from_ledger",
     "drift_is", "drift_worsening", "any_drifting", "any_drift_worsening", "drift_accelerating",
