@@ -54,6 +54,7 @@ Then the correction loop:
 - **Streaming** — incremental trackers: `Monitor.update(values)` updates health + drift + anomaly + correlation in one call
 - **Config** — define everything in YAML/JSON: `margin.load_config("margin.yaml")`
 - **Persistence** — save/restore Monitor state across restarts, batch replay from CSV
+- **Intent** — goal feasibility: `intent.evaluate_monitor(monitor)` → FEASIBLE / AT_RISK / INFEASIBLE with ETA
 - **CLI** — `python -m margin status`, `monitor`, `replay` — no Python code required
 - **Ledger** — full audit trail of every correction, serializable, replayable
 

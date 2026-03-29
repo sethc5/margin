@@ -1560,9 +1560,68 @@ rule = PolicyRule("new-corr", any_new_correlation(ledger, baseline_graph),
 
 ---
 
+## Layer 6: Intent — Can we still make it?
+
+Health says where components are. Drift says where they're headed.
+Intent says whether the system can still achieve its goal.
+
+### Intent definition
+
+```python
+from margin import Intent, Health
+
+intent = (Intent(goal="deliver package to dock 7", deadline_seconds=900)
+          .require("battery_soc", min_value=20.0)
+          .require("navigation", min_health=Health.DEGRADED)
+          .require("wifi", min_health=Health.ABLATED, critical=False))
+```
+
+Requirements can specify:
+
+- `min_health` — minimum acceptable Health state
+- `min_value` — numeric threshold (polarity-aware)
+- `critical` — if True, violation → INFEASIBLE; if False → AT_RISK
+
+### Evaluation
+
+```python
+result = intent.evaluate(expression, drift_by_component)
+result.feasibility   # FEASIBLE / AT_RISK / INFEASIBLE / UNKNOWN
+result.risks         # [RiskFactor(battery_soc: DRIFTING(WORSENING), ETA 600s)]
+result.met           # ["navigation", "wifi"]
+result.violated      # []
+result.trending_bad  # ["battery_soc"]
+result.summary()     # "AT_RISK — battery_soc: DRIFTING(WORSENING), ETA 10.0m"
+```
+
+Or directly from a Monitor:
+
+```python
+result = intent.evaluate_monitor(monitor)
+```
+
+### Feasibility states
+
+| State | Meaning |
+| ----- | ------- |
+| `FEASIBLE` | All requirements met, trajectories OK |
+| `AT_RISK` | Requirements met now, but drift threatens deadline |
+| `INFEASIBLE` | Requirements already violated or will be before deadline |
+| `UNKNOWN` | Insufficient data to evaluate |
+
+### Drift-aware ETA
+
+When a component is DRIFTING(WORSENING) and has a `min_value` requirement,
+intent projects when the value will cross the threshold using the drift rate.
+If the ETA is before the deadline, the intent is AT_RISK.
+
+This is the layer that turns margin from monitoring into decision support.
+
+---
+
 ## The full loop
 
-The five layers form a complete typed loop:
+The eight layers form a complete typed loop:
 
 ```text
         ┌─────────────────────────────────────────────┐
@@ -1915,6 +1974,7 @@ margin/
 ├── causal.py                 CausalGraph, CausalLink, Explanation
 │
 │ Loop + Streaming + Config
+├── intent.py                 Intent, Requirement, Feasibility, evaluate_monitor()
 ├── loop.py                   step(), run(), StepResult
 ├── streaming.py              DriftTracker, AnomalyTracker, CorrelationTracker, Monitor
 ├── persist.py                save_monitor(), load_monitor(), replay(), replay_csv()
