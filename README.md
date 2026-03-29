@@ -58,16 +58,19 @@ Then the correction loop:
 - **CLI** — `python -m margin status`, `monitor`, `replay` — no Python code required
 - **Ledger** — full audit trail of every correction, serializable, replayable
 
-All in one call:
+All eight layers in one call:
 
 ```python
-from margin import step
+from margin import full_step
 
-result = step(expression, policy, ledger, graph, contract)
-# result.correction    — what to do
-# result.explanations  — why it happened
-# result.decision      — which rule matched, full trace
-# result.contract      — are we meeting our goals?
+result = full_step(monitor, values, policy, graph=graph, contract=contract, intent=intent)
+# result.expression    — current health
+# result.drift         — per-component trajectories
+# result.anomaly       — per-component outlier states
+# result.step.explanations — why it happened (causal)
+# result.step.correction   — what to do (policy)
+# result.step.contract     — are we meeting our goals?
+# result.intent        — can we still make it?
 ```
 
 ## The polarity bug

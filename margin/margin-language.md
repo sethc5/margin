@@ -1725,6 +1725,32 @@ results, ledger = run(expressions, policy)
 This is for backtesting and replay — it does NOT simulate correction
 outcomes. Each Expression is taken as-is.
 
+### `full_step(monitor, values, policy, ...) -> FullStepResult`
+
+Run ALL eight layers in one call:
+
+1. `Monitor.update()` → health + drift + anomaly + correlation
+2. `step()` → explain + decide + contract
+3. `Intent.evaluate()` → goal feasibility
+
+```python
+from margin import full_step, Monitor, Parser, Thresholds, Policy, Intent
+
+result = full_step(monitor, {"cpu": 48, "mem": 65}, policy,
+                   graph=graph, contract=contract, intent=intent)
+
+result.expression       # current health
+result.drift            # {component: DriftClassification}
+result.anomaly          # {component: AnomalyClassification}
+result.correlations     # CorrelationMatrix
+result.step.correction  # what to do
+result.step.explanations  # why (causal)
+result.step.contract    # are we meeting goals?
+result.intent           # IntentResult: FEASIBLE / AT_RISK / INFEASIBLE
+result.feasible         # bool shorthand
+result.to_string()      # human-readable summary of all layers
+```
+
 ---
 
 ## `streaming.py` — Incremental trackers

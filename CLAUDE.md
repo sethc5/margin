@@ -111,9 +111,12 @@ CLI options: `--margin-fail-below=DEGRADED`, `--margin-per-file`, `--margin-base
 ## Full loop
 
 ```python
-from margin import step
-result = step(expression, policy, ledger, graph, contract)
-# result.correction, result.explanations, result.decision, result.contract
+from margin import full_step
+
+result = full_step(monitor, values, policy, graph=graph, contract=contract, intent=intent)
+# result.expression, result.drift, result.anomaly, result.correlations
+# result.step.correction, result.step.explanations, result.step.contract
+# result.intent — FEASIBLE / AT_RISK / INFEASIBLE
 ```
 
 ## Install
