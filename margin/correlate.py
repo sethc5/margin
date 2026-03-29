@@ -142,7 +142,10 @@ class CorrelationMatrix:
 
     def coefficient(self, a: str, b: str) -> Optional[float]:
         """Get the correlation coefficient between two components."""
-        return self.matrix.get((a, b)) or self.matrix.get((b, a))
+        val = self.matrix.get((a, b))
+        if val is not None:
+            return val
+        return self.matrix.get((b, a))
 
     def to_causal_graph(self, existing: Optional[CausalGraph] = None) -> CausalGraph:
         """Convert all discovered correlations to a CausalGraph."""
