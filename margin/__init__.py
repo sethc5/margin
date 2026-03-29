@@ -77,6 +77,14 @@ from .contract import (
     ContractResult, Contract,
 )
 
+# Correlation
+from .correlate import (
+    Correlation, CorrelationMatrix,
+    correlate_pair, correlate, correlate_from_ledger,
+    auto_causal_graph,
+    correlated_with, any_new_correlation,
+)
+
 # Causal
 from .causal import (
     CauseType, CausalLink, CausalGraph,
@@ -134,6 +142,11 @@ __all__ = [
     "HealthTarget", "ReachHealth", "SustainHealth",
     "RecoveryThreshold", "NoHarmful",
     "ContractResult", "Contract",
+    # Correlation
+    "Correlation", "CorrelationMatrix",
+    "correlate_pair", "correlate", "correlate_from_ledger",
+    "auto_causal_graph",
+    "correlated_with", "any_new_correlation",
     # Causal
     "CauseType", "CausalLink", "CausalGraph",
     "CauseExplanation", "Explanation",

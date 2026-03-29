@@ -1511,6 +1511,53 @@ expl.has_known_cause    # True
 `graph.explain_all(expr)` returns explanations for every component
 in the expression.
 
+### Auto-correlation (`correlate.py`)
+
+Discover which components move together from observation data,
+then feed the results into CausalGraph automatically.
+
+```python
+from margin import correlate, correlate_from_ledger, auto_causal_graph
+
+# From raw value series
+matrix = correlate({"cpu": cpu_values, "mem": mem_values, "disk": disk_values},
+                   min_correlation=0.7, max_lag=3)
+matrix.strongest(3)             # top 3 correlations
+matrix.for_component("cpu")     # all correlations involving cpu
+matrix.coefficient("cpu", "mem") # pairwise r value
+
+# From a Ledger
+matrix = correlate_from_ledger(ledger, min_correlation=0.7, max_lag=3)
+
+# One-step: discover + build graph
+graph = auto_causal_graph(ledger, existing=manual_graph, min_correlation=0.7)
+```
+
+Each `Correlation` has:
+
+- `coefficient` — Pearson r (-1 to +1)
+- `lag` — positive means A leads B by N steps
+- `strength` — |r|
+- `to_causal_link()` — converts to a CausalLink (CORRELATES or DEGRADES based on sign/lag)
+
+Lag detection: when `max_lag > 0`, tests all lags from -max_lag to +max_lag
+and returns the lag with the strongest absolute correlation. If A leads B,
+the causal direction is inferred as A → B.
+
+Predicates for policy rules:
+
+```python
+from margin import correlated_with, any_new_correlation
+
+# True if cpu and mem are correlated above threshold
+rule = PolicyRule("corr-alert", correlated_with("cpu", "mem", ledger),
+                  Action(target="*", op=Op.RESTORE), priority=15)
+
+# True if ledger shows correlations not in the baseline graph
+rule = PolicyRule("new-corr", any_new_correlation(ledger, baseline_graph),
+                  Action(target="*", op=Op.NOOP), priority=5)
+```
+
 ---
 
 ## The full loop
@@ -1644,6 +1691,7 @@ margin/
 ├── diff.py                   Expression diffing
 ├── events.py                 EventBus
 ├── anomaly.py                Statistical outlier detection, distribution shift, jump detection
+├── correlate.py              Auto-correlation discovery, lag detection, causal graph integration
 ├── drift.py                  Trajectory classification, predicates, forecast composition
 ├── forecast.py               Trend projection
 ├── predicates.py             Pattern matching, combinators, Rule

@@ -50,6 +50,7 @@ Then the correction loop:
 - **Escalation** — LOG / ALERT / HALT when the policy can't act
 - **Contract** — typed success criteria ("reach INTACT within 5 steps")
 - **Causal** — dependency graphs ("api is DEGRADED because db is ABLATED")
+- **Auto-correlation** — discover which components move together from data, with lag detection
 - **Ledger** — full audit trail of every correction, serializable, replayable
 
 All in one call:

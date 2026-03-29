@@ -96,6 +96,8 @@ CLI options: `--margin-fail-below=DEGRADED`, `--margin-per-file`, `--margin-base
 - `DriftForecast` — drift shape + ETA to threshold crossing
 - `DistributionShift` — recent vs reference distribution comparison
 - `Jump` — sudden discontinuity detection
+- `Correlation` / `CorrelationMatrix` — auto-discovered component correlations with lag
+- `auto_causal_graph()` — build CausalGraph from data instead of manual edges
 
 ## Full loop
 
