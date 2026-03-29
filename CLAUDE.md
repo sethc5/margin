@@ -91,6 +91,11 @@ CLI options: `--margin-fail-below=DEGRADED`, `--margin-per-file`, `--margin-base
 - `Policy` — typed correction rules with priority, constraints, escalation
 - `Contract` — typed success criteria (HealthTarget, SustainHealth, etc.)
 - `CausalGraph` — dependency graph explaining why components are degraded
+- `DriftClassification` — trajectory: STABLE / DRIFTING / ACCELERATING / DECELERATING / REVERTING / OSCILLATING
+- `AnomalyClassification` — outlier: EXPECTED / UNUSUAL / ANOMALOUS / NOVEL
+- `DriftForecast` — drift shape + ETA to threshold crossing
+- `DistributionShift` — recent vs reference distribution comparison
+- `Jump` — sudden discontinuity detection
 
 ## Full loop
 

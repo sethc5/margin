@@ -40,6 +40,8 @@ A number comes in. Margin gives it:
 - **Confidence** — how much the uncertainty interval overlaps the threshold
 - **Provenance** — where this value came from, for correlation detection
 - **Validity** — how the measurement ages (static, decaying, event-invalidated)
+- **Drift** — trajectory classification: STABLE / DRIFTING / ACCELERATING / DECELERATING / REVERTING / OSCILLATING
+- **Anomaly** — statistical outlier detection: EXPECTED / UNUSUAL / ANOMALOUS / NOVEL
 
 Then the correction loop:
 

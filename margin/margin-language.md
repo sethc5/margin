@@ -1053,7 +1053,7 @@ from margin import detect_jumps
 
 jumps = detect_jumps(observations, jump_threshold=3.0)
 for j in jumps:
-    j.magnitude_sigma   # size of jump in σ of step-to-step differences
+    j.magnitude_sigma   # robust z-score vs local window of surrounding diffs
     j.value_before      # value before the jump
     j.value_after       # value after the jump
     j.at_index          # index in observation sequence
