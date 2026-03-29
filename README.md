@@ -51,6 +51,8 @@ Then the correction loop:
 - **Contract** — typed success criteria ("reach INTACT within 5 steps")
 - **Causal** — dependency graphs ("api is DEGRADED because db is ABLATED")
 - **Auto-correlation** — discover which components move together from data, with lag detection
+- **Streaming** — incremental trackers: `Monitor.update(values)` updates health + drift + anomaly + correlation in one call
+- **Config** — define everything in YAML/JSON: `margin.load_config("margin.yaml")`
 - **Ledger** — full audit trail of every correction, serializable, replayable
 
 All in one call:

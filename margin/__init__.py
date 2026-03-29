@@ -91,6 +91,12 @@ from .causal import (
     CauseExplanation, Explanation,
 )
 
+# Streaming
+from .streaming import DriftTracker, AnomalyTracker, CorrelationTracker, Monitor
+
+# Config
+from .config import from_config, load_config
+
 # Loop
 from .loop import StepResult, step, run
 
@@ -150,6 +156,10 @@ __all__ = [
     # Causal
     "CauseType", "CausalLink", "CausalGraph",
     "CauseExplanation", "Explanation",
+    # Streaming
+    "DriftTracker", "AnomalyTracker", "CorrelationTracker", "Monitor",
+    # Config
+    "from_config", "load_config",
     # Loop
     "StepResult", "step", "run",
 ]

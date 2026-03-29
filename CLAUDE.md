@@ -98,6 +98,9 @@ CLI options: `--margin-fail-below=DEGRADED`, `--margin-per-file`, `--margin-base
 - `Jump` — sudden discontinuity detection
 - `Correlation` / `CorrelationMatrix` — auto-discovered component correlations with lag
 - `auto_causal_graph()` — build CausalGraph from data instead of manual edges
+- `Monitor` — streaming tracker: one `update()` for health + drift + anomaly + correlation
+- `DriftTracker` / `AnomalyTracker` / `CorrelationTracker` — per-concern incremental trackers
+- `from_config()` / `load_config()` — build Parser + Policy + Contract from dict/YAML/JSON
 
 ## Full loop
 
