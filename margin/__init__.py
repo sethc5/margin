@@ -30,6 +30,14 @@ from .calibrate import CalibrationResult, calibrate, calibrate_many, parser_from
 from .composite import CompositeObservation, AggregateStrategy
 from .diff import ComponentChange, Diff, diff
 from .events import EventBus
+from .drift import (
+    DriftState, DriftDirection, DriftClassification,
+    classify_drift, classify_drift_all,
+    observations_from_ledger as drift_observations_from_ledger,
+    drift_from_ledger, drift_all_from_ledger,
+    drift_is, drift_worsening, any_drifting, any_drift_worsening, drift_accelerating,
+    DriftForecast, drift_forecast, drift_forecast_from_ledger,
+)
 from .forecast import Forecast, forecast
 from .predicates import (
     any_health, all_health, count_health, component_health,
@@ -84,6 +92,10 @@ __all__ = [
     "CalibrationResult", "calibrate", "calibrate_many", "parser_from_calibration",
     "CompositeObservation", "AggregateStrategy",
     "ComponentChange", "Diff", "diff",
+    "DriftState", "DriftDirection", "DriftClassification", "classify_drift", "classify_drift_all",
+    "drift_observations_from_ledger", "drift_from_ledger", "drift_all_from_ledger",
+    "drift_is", "drift_worsening", "any_drifting", "any_drift_worsening", "drift_accelerating",
+    "DriftForecast", "drift_forecast", "drift_forecast_from_ledger",
     "EventBus",
     "Forecast", "forecast",
     "any_health", "all_health", "count_health", "component_health",
