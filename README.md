@@ -109,24 +109,24 @@ Ready-to-use threshold profiles for specific domains:
 
 | Adapter | What it monitors | Polarity |
 |---|---|---|
-| [**healthcare**](adapters/healthcare/) | Vital signs (HR, BP, SpO2, temp, glucose) — WHO/AHA ranges, sepsis screening | bands |
+| [**healthcare**](https://github.com/sethc5/margin/tree/main/adapters/healthcare/) | Vital signs (HR, BP, SpO2, temp, glucose) — WHO/AHA ranges, sepsis screening | bands |
 | [**godot**](https://github.com/sethc5/margin-godot) | Game systems (food, morale, stress, stamina) — native GDScript | mixed |
-| [**homeassistant**](adapters/homeassistant/) | Smart home sensors (temp, humidity, battery, solar, power) | mixed |
-| [**evcharging**](adapters/evcharging/) | EV charging (SoC, grid draw, solar surplus, efficiency) | mixed |
-| [**infrastructure**](adapters/infrastructure/) | Server monitoring (CPU, memory, disk, latency, error rate) | mixed |
-| [**aquarium**](adapters/aquarium/) | Water chemistry (pH, ammonia, nitrite, temp, hardness) | bands |
-| [**greenhouse**](adapters/greenhouse/) | Growing environment (soil moisture, CO₂, light, VPD) | bands |
-| [**fitness**](adapters/fitness/) | Wearables (resting HR, HRV, sleep, steps, stress) | mixed |
-| [**transformer**](adapters/transformer/) | ML circuit interpretability (pythia-6.9b) | higher |
-| [**fastapi**](adapters/fastapi/) | Endpoint health (latency, error rate, throughput, queue depth) | mixed |
-| [**database**](adapters/database/) | DB health (pool usage, query latency, replication lag, deadlocks) | mixed |
-| [**celery**](adapters/celery/) | Task queue (queue depth, failure rate, worker utilization, retries) | mixed |
-| [**dataframe**](adapters/dataframe/) | Data quality (completeness, null rate, drift, freshness, schema) | mixed |
-| [**pytest**](adapters/pytest/) | Test suite health (pass rate, flake rate, coverage, duration) | mixed |
+| [**homeassistant**](https://github.com/sethc5/margin/tree/main/adapters/homeassistant/) | Smart home sensors (temp, humidity, battery, solar, power) | mixed |
+| [**evcharging**](https://github.com/sethc5/margin/tree/main/adapters/evcharging/) | EV charging (SoC, grid draw, solar surplus, efficiency) | mixed |
+| [**infrastructure**](https://github.com/sethc5/margin/tree/main/adapters/infrastructure/) | Server monitoring (CPU, memory, disk, latency, error rate) | mixed |
+| [**aquarium**](https://github.com/sethc5/margin/tree/main/adapters/aquarium/) | Water chemistry (pH, ammonia, nitrite, temp, hardness) | bands |
+| [**greenhouse**](https://github.com/sethc5/margin/tree/main/adapters/greenhouse/) | Growing environment (soil moisture, CO₂, light, VPD) | bands |
+| [**fitness**](https://github.com/sethc5/margin/tree/main/adapters/fitness/) | Wearables (resting HR, HRV, sleep, steps, stress) | mixed |
+| [**transformer**](https://github.com/sethc5/margin/tree/main/adapters/transformer/) | ML circuit interpretability (pythia-6.9b) | higher |
+| [**fastapi**](https://github.com/sethc5/margin/tree/main/adapters/fastapi/) | Endpoint health (latency, error rate, throughput, queue depth) | mixed |
+| [**database**](https://github.com/sethc5/margin/tree/main/adapters/database/) | DB health (pool usage, query latency, replication lag, deadlocks) | mixed |
+| [**celery**](https://github.com/sethc5/margin/tree/main/adapters/celery/) | Task queue (queue depth, failure rate, worker utilization, retries) | mixed |
+| [**dataframe**](https://github.com/sethc5/margin/tree/main/adapters/dataframe/) | Data quality (completeness, null rate, drift, freshness, schema) | mixed |
+| [**pytest**](https://github.com/sethc5/margin/tree/main/adapters/pytest/) | Test suite health (pass rate, flake rate, coverage, duration) | mixed |
 
 ## Docs
 
-Full specification: [margin-language.md](margin/margin-language.md)
+Full specification: [margin-language.md](https://github.com/sethc5/margin/blob/main/margin/margin-language.md)
 
 ## License
 
