@@ -8,9 +8,9 @@ from margin.health import Health, Thresholds
 from margin.observation import Op, Expression
 from margin.ledger import Record, Ledger
 
-from transformer.signal import ProcessSignal, DEFAULT_SIGNAL_NAMES
-from transformer.circuit import CircuitState, gates_to_confidence
-from transformer.parsers import make_pythia_parser, make_from_sweep
+from adapters.transformer.signal import ProcessSignal, DEFAULT_SIGNAL_NAMES
+from adapters.transformer.circuit import CircuitState, gates_to_confidence
+from adapters.transformer.parsers import make_pythia_parser, make_from_sweep
 
 
 class TestProcessSignal:
