@@ -208,7 +208,7 @@ boundary. Supports comparison operators (`Confidence.HIGH > Confidence.LOW`).
 | `INDETERMINATE` | boundary inside interval; forces OOD | 100% |
 
 ```python
-from generic import Confidence
+from margin import Confidence
 Confidence.HIGH > Confidence.LOW      # True
 min([Confidence.HIGH, Confidence.LOW]) # Confidence.LOW
 ```
@@ -245,7 +245,7 @@ validity, and provenance.
 | `provenance` | list[str] | Ancestor IDs for correlation detection |
 
 ```python
-from generic import UncertainValue
+from margin import UncertainValue
 v = UncertainValue(point=5.0, uncertainty=0.3)
 v.absolute_uncertainty()   # 0.3 (accounts for decay if validity is DECAY)
 v.interval()               # (4.7, 5.3)
@@ -275,7 +275,7 @@ Arithmetic operations that propagate uncertainty correctly:
 | `weighted_average(vs)` | Inverse-variance weighting by default |
 
 ```python
-from generic import UncertainValue, add, compare
+from margin import UncertainValue, add, compare
 a = UncertainValue(point=5.0, uncertainty=0.3)
 b = UncertainValue(point=3.0, uncertainty=0.2)
 c = add(a, b)              # point=8.0, uncertainty=0.36 (quadrature)
@@ -312,7 +312,7 @@ Validates on construction: `ablated <= intact` when `higher_is_better`,
 `ablated >= intact` when not.
 
 ```python
-from generic import Thresholds
+from margin import Thresholds
 
 # Throughput: higher is better
 Thresholds(intact=80.0, ablated=30.0)
@@ -424,7 +424,7 @@ String rendering via `to_string()`:
 Converts raw measurements into typed Expressions.
 
 ```python
-from generic import Parser, Thresholds, Confidence
+from margin import Parser, Thresholds, Confidence
 
 p = Parser(
     baselines={"throughput": 100.0, "error_rate": 0.01},
@@ -572,7 +572,7 @@ Choose `intact` and `ablated` boundaries. Rules of thumb:
 ### Step 3 — Construct a Parser
 
 ```python
-from generic import Parser, Thresholds
+from margin import Parser, Thresholds
 
 parser = Parser(
     baselines={
@@ -597,7 +597,7 @@ Compares two Expressions and reports what changed per component.
 ### `diff(before, after) -> Diff`
 
 ```python
-from generic import diff, Parser, Thresholds
+from margin import diff, Parser, Thresholds
 
 p = Parser(baselines={"x": 100.0}, thresholds=Thresholds(intact=80.0, ablated=30.0))
 e1 = p.parse({"x": 90.0})
@@ -636,7 +636,7 @@ Derives baselines and thresholds from historical "known healthy" data.
 ### `calibrate(values, higher_is_better) -> CalibrationResult`
 
 ```python
-from generic import calibrate
+from margin import calibrate
 
 r = calibrate([98.0, 102.0, 100.0, 101.0, 99.0])
 # r.baseline   = 100.0
@@ -667,7 +667,7 @@ Calibrate multiple components at once. Returns dicts ready for `Parser()`.
 One-shot: calibrate and return a ready-to-use Parser.
 
 ```python
-from generic import parser_from_calibration
+from margin import parser_from_calibration
 
 parser = parser_from_calibration(
     {"throughput": [100.0] * 10, "latency": [50.0] * 10},
@@ -685,7 +685,7 @@ Tracks how components move between Health states over a Ledger's lifetime.
 ### `track(ledger, component) -> ComponentHistory`
 
 ```python
-from generic import track, Ledger
+from margin import track, Ledger
 
 history = track(ledger, "error_rate")
 history.n_transitions       # number of state changes
@@ -728,7 +728,7 @@ A contiguous period in one Health state.
 `Observation` carries an optional `measured_at: datetime` timestamp.
 
 ```python
-from generic import Observation, Health, Confidence
+from margin import Observation, Health, Confidence
 from datetime import datetime
 
 obs = Observation("x", Health.INTACT, 90.0, 100.0, Confidence.HIGH,
@@ -790,7 +790,7 @@ Wires `Validity.until_event()` to actual event dispatch. When an event
 fires, all values whose Validity references that event become stale.
 
 ```python
-from generic import EventBus, Validity, UncertainValue
+from margin import EventBus, Validity, UncertainValue
 
 bus = EventBus()
 
@@ -821,7 +821,7 @@ A component with multiple related sub-measurements (e.g. p50/p95/p99
 latency). Derives a single Health from the sub-observations.
 
 ```python
-from generic import CompositeObservation, AggregateStrategy, Observation, Health, Confidence
+from margin import CompositeObservation, AggregateStrategy, Observation, Health, Confidence
 
 c = CompositeObservation(
     name="latency",
@@ -849,7 +849,7 @@ Given a sequence of timestamped observations, fits a linear trend and
 projects when the value will cross the intact or ablated threshold.
 
 ```python
-from generic import forecast, Observation, Health, Thresholds, Confidence
+from margin import forecast, Observation, Health, Thresholds, Confidence
 from datetime import datetime, timedelta
 
 t0 = datetime(2026, 1, 1)
@@ -875,6 +875,117 @@ Polarity-aware: `improving` always means "moving toward healthy."
 
 ---
 
+## `drift.py` — Trajectory classification
+
+Health tells you WHERE a value is. Drift tells you WHERE IT'S HEADED.
+
+Given a sequence of timestamped observations, fits linear and quadratic
+models to classify the trajectory shape, direction, and confidence.
+
+### Drift states
+
+| State | Meaning |
+| ----- | ------- |
+| `STABLE` | Value not changing meaningfully (slope within noise) |
+| `DRIFTING` | Consistent linear trend in one direction |
+| `ACCELERATING` | Rate of change is increasing |
+| `DECELERATING` | Rate of change is decreasing (approaching plateau) |
+| `REVERTING` | Was unhealthy, now heading back toward baseline |
+| `OSCILLATING` | Periodic fluctuation around a center |
+
+Direction is polarity-aware: `IMPROVING` always means "moving toward healthy,"
+`WORSENING` always means "moving toward unhealthy."
+
+### Basic usage
+
+```python
+from margin import classify_drift, DriftState, DriftDirection
+from margin import Observation, Health, Confidence
+from datetime import datetime, timedelta
+
+t0 = datetime(2026, 1, 1)
+obs = [
+    Observation("rps", Health.INTACT, 450.0, 500.0, Confidence.HIGH,
+                measured_at=t0),
+    Observation("rps", Health.DEGRADED, 400.0, 500.0, Confidence.HIGH,
+                measured_at=t0 + timedelta(minutes=5)),
+    Observation("rps", Health.DEGRADED, 350.0, 500.0, Confidence.HIGH,
+                measured_at=t0 + timedelta(minutes=10)),
+]
+
+dc = classify_drift(obs)
+dc.state       # DriftState.DRIFTING
+dc.direction   # DriftDirection.WORSENING
+dc.rate        # negative (units/second, polarity-normalised)
+dc.confidence  # Confidence tier based on sample count and R²
+dc.to_atom()   # "rps:DRIFTING(WORSENING, -0.5556/s)"
+```
+
+### Ledger integration
+
+Extract observation history from a Ledger and classify:
+
+```python
+from margin import drift_from_ledger, drift_all_from_ledger
+
+dc = drift_from_ledger(ledger, "rps")         # one component
+all_dc = drift_all_from_ledger(ledger)         # all components
+```
+
+### Policy predicates
+
+Drift predicates follow the temporal predicate pattern — close over a
+Ledger, return `PredicateFn` for use in PolicyRule conditions:
+
+```python
+from margin import (
+    drift_worsening, any_drifting, any_drift_worsening,
+    drift_is, drift_accelerating,
+    DriftState, PolicyRule, Action, Op,
+)
+
+# Fire if any component's trajectory is worsening
+rule = PolicyRule("drift-alert", any_drift_worsening(ledger),
+                  Action(target="*", op=Op.RESTORE), priority=20)
+
+# Fire if a specific component is accelerating
+rule = PolicyRule("cpu-accel", drift_accelerating("cpu", ledger),
+                  Action(target="cpu", op=Op.RESTORE, alpha=1.0), priority=30)
+```
+
+### Forecast composition
+
+`DriftForecast` combines trajectory shape (drift) with threshold
+crossing ETAs (forecast) in one object:
+
+```python
+from margin import drift_forecast, drift_forecast_from_ledger, Thresholds
+
+df = drift_forecast(obs, Thresholds(intact=400.0, ablated=150.0))
+df.drift.state       # DriftState.DRIFTING
+df.forecast.eta_ablated  # timedelta to ablated threshold
+df.summary           # "rps: DRIFTING(WORSENING), ETA ablated: 7.5m"
+```
+
+Classification logic:
+
+1. **Oscillation check** — if slope is not significant but residuals show
+   zero crossings with significant amplitude → `OSCILLATING`
+2. **Slope significance** — if slope is within noise → `STABLE`
+3. **Reversion** — value was unhealthy, now moving back toward baseline → `REVERTING`
+4. **Acceleration** — quadratic R² significantly improves over linear → `ACCELERATING` or `DECELERATING`
+5. **Otherwise** → `DRIFTING`
+
+Confidence is derived from sample count and goodness of fit:
+
+- 10+ samples, R² > 0.8 → `HIGH`
+- 5+ samples, R² > 0.5 → `MODERATE`
+- Otherwise → `LOW`
+
+Serialisation: `DriftClassification.to_dict()` / `from_dict()` roundtrips cleanly.
+
+---
+
 ## `predicates.py` — Expression pattern matching
 
 Declarative rules for evaluating Expressions. Define conditions and
@@ -883,9 +994,9 @@ evaluate them against snapshots.
 ### Basic predicates
 
 ```python
-from generic import any_health, all_health, count_health, component_health
-from generic import any_degraded, confidence_below, sigma_below, any_correction
-from generic import Health, Confidence
+from margin import any_health, all_health, count_health, component_health
+from margin import any_degraded, confidence_below, sigma_below, any_correction
+from margin import Health, Confidence
 
 any_health(Health.ABLATED)           # True if any component is ABLATED
 all_health(Health.INTACT)            # True if all components are INTACT
@@ -900,7 +1011,7 @@ any_correction()                     # True if any correction is active
 ### Combinators
 
 ```python
-from generic import all_of, any_of, not_
+from margin import all_of, any_of, not_
 
 critical = all_of(
     any_health(Health.ABLATED),
@@ -912,7 +1023,7 @@ all_clear = not_(any_degraded())
 ### Rules
 
 ```python
-from generic import Rule, evaluate_rules
+from margin import Rule, evaluate_rules
 
 rules = [
     Rule("all-clear", all_health(Health.INTACT)),
@@ -932,7 +1043,7 @@ matched = evaluate_rules(rules, expr)
 closing the algebra-health loop.
 
 ```python
-from generic import to_uncertain, Observation, Health, Confidence
+from margin import to_uncertain, Observation, Health, Confidence
 
 obs = Observation("rps", Health.DEGRADED, 350.0, 500.0, Confidence.HIGH)
 uv = to_uncertain(obs)
@@ -961,7 +1072,7 @@ confidence tier is derived automatically from the uncertainty interval's
 relationship to the threshold — not defaulted to MODERATE.
 
 ```python
-from generic import observe, UncertainValue, Thresholds
+from margin import observe, UncertainValue, Thresholds
 
 value = UncertainValue(point=45.0, uncertainty=8.0)
 baseline = UncertainValue(point=100.0, uncertainty=2.0)
@@ -981,7 +1092,7 @@ to the same `_classify_op` logic as Parser.
 difference with propagated uncertainty:
 
 ```python
-from generic import delta, UncertainValue, Thresholds
+from margin import delta, UncertainValue, Thresholds
 
 before = UncertainValue(point=0.08, uncertainty=0.005)
 after = UncertainValue(point=0.03, uncertainty=0.003)
@@ -999,7 +1110,7 @@ obs_before, obs_after, diff = delta("error_rate", before, after, baseline, t)
 Minimum setup — observe, classify, and record in 10 lines:
 
 ```python
-from generic import Parser, Thresholds, Ledger
+from margin import Parser, Thresholds, Ledger
 
 # 1. Configure
 parser = Parser(
@@ -1016,7 +1127,7 @@ print(expr.to_string())
 # [rps:INTACT(-0.04σ)] [error_rate:DEGRADED(-14.00σ)]
 
 # 3. Or auto-calibrate from healthy data
-from generic import parser_from_calibration
+from margin import parser_from_calibration
 parser = parser_from_calibration(
     {"rps": [490, 510, 505, 495, 500], "error_rate": [0.002, 0.001, 0.003]},
     polarities={"error_rate": False},
@@ -1026,7 +1137,7 @@ parser = parser_from_calibration(
 Full loop — observe, explain, decide, evaluate, record:
 
 ```python
-from generic import (
+from margin import (
     step, Parser, Thresholds, Policy, PolicyRule, Action, Constraint,
     Contract, HealthTarget, SustainHealth,
     CausalGraph, Ledger,
@@ -1353,7 +1464,7 @@ are optional — the loop degrades gracefully:
 | `contract` | No goal evaluation |
 
 ```python
-from generic import step
+from margin import step
 
 result = step(expr, policy)                          # minimal
 result = step(expr, policy, ledger)                  # with constraints
@@ -1385,7 +1496,7 @@ it goes. Each step's observation is recorded as a Record. Returns
 the list of StepResults and the final ledger.
 
 ```python
-from generic import run, Parser, Thresholds, Policy, PolicyRule, Action, Op, any_degraded
+from margin import run, Parser, Thresholds, Policy, PolicyRule, Action, Op, any_degraded
 
 parser = Parser(baselines={"x": 100.0}, thresholds=Thresholds(intact=80.0, ablated=30.0))
 expressions = [parser.parse({"x": v}) for v in [90, 50, 30, 60, 85]]
@@ -1409,7 +1520,7 @@ outcomes. Each Expression is taken as-is.
 ## Structure
 
 ```text
-generic/
+margin/
 ├── margin-language.md        This document
 │
 │ Foundation
@@ -1428,6 +1539,7 @@ generic/
 ├── composite.py              CompositeObservation
 ├── diff.py                   Expression diffing
 ├── events.py                 EventBus
+├── drift.py                  Trajectory classification, predicates, forecast composition
 ├── forecast.py               Trend projection
 ├── predicates.py             Pattern matching, combinators, Rule
 ├── transitions.py            State transition tracking
