@@ -9,7 +9,7 @@ description = "Typed health classification, uncertainty algebra, and correction 
 readme = "README.md"
 license = {text = "MIT"}
 requires-python = ">=3.10"
-authors = [{name = "Seth C"}]
+authors = [{name = "Cope Labs LLC"}]
 keywords = [
     "health", "monitoring", "uncertainty", "observability",
     "typed", "classification", "threshold", "polarity",
