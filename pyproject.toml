@@ -1,0 +1,41 @@
+[build-system]
+requires = ["setuptools>=68.0"]
+build-backend = "setuptools.backends._legacy:_Backend"
+
+[project]
+name = "margin"
+version = "0.1.0"
+description = "Typed health classification, uncertainty algebra, and correction auditing for any system that measures things and needs to explain what happened."
+readme = "README.md"
+license = {text = "MIT"}
+requires-python = ">=3.10"
+authors = [{name = "Seth C"}]
+keywords = [
+    "health", "monitoring", "uncertainty", "observability",
+    "typed", "classification", "threshold", "polarity",
+    "correction", "audit", "ledger", "policy",
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Software Development :: Libraries",
+    "Topic :: System :: Monitoring",
+    "Typing :: Typed",
+]
+
+[project.urls]
+Homepage = "https://github.com/sethc5/margin"
+Repository = "https://github.com/sethc5/margin"
+Issues = "https://github.com/sethc5/margin/issues"
+
+[tool.setuptools.packages.find]
+include = ["margin*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
