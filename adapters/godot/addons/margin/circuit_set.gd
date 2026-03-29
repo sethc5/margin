@@ -114,6 +114,49 @@ func to_dict() -> Dictionary:
 	return d
 
 
+## All circuits that are worsening (drift direction = WORSENING).
+func worsening() -> Array[MarginCircuit]:
+	var result: Array[MarginCircuit] = []
+	for c: MarginCircuit in circuits.values():
+		if c.is_worsening:
+			result.append(c)
+	return result
+
+
+## All circuits that are reverting (heading back to baseline).
+func reverting() -> Array[MarginCircuit]:
+	var result: Array[MarginCircuit] = []
+	for c: MarginCircuit in circuits.values():
+		if c.is_reverting:
+			result.append(c)
+	return result
+
+
+## True if any circuit is worsening.
+func any_worsening() -> bool:
+	for c: MarginCircuit in circuits.values():
+		if c.is_worsening:
+			return true
+	return false
+
+
+## The most urgently worsening circuit (worst health + worsening drift).
+func most_urgent() -> MarginCircuit:
+	var urgent_c: MarginCircuit = null
+	var urgent_sev := -1
+	for c: MarginCircuit in circuits.values():
+		if not c.is_worsening:
+			continue
+		var sev: int = MarginHealth.SEVERITY[c.health]
+		if sev > urgent_sev:
+			urgent_sev = sev
+			urgent_c = c
+	# Fall back to worst if nothing is worsening
+	if urgent_c == null:
+		return worst()
+	return urgent_c
+
+
 ## Summary stats.
 func summary() -> Dictionary:
 	var n_intact := 0
@@ -135,4 +178,6 @@ func summary() -> Dictionary:
 		"ablated": n_ablated,
 		"worst": worst().circuit_name if worst() else "",
 		"correction": worst_correction(),
+		"n_worsening": worsening().size(),
+		"most_urgent": most_urgent().circuit_name if most_urgent() else "",
 	}

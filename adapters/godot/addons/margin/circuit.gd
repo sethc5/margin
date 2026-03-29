@@ -20,6 +20,13 @@ var health: MarginHealth.State
 var sigma_value: float
 var correcting: bool = false
 
+## Drift tracking
+var drift_state: MarginDrift.State = MarginDrift.State.STABLE
+var drift_direction: MarginDrift.Direction = MarginDrift.Direction.NEUTRAL
+var drift_rate: float = 0.0
+var is_worsening: bool = false
+var is_reverting: bool = false
+
 ## History
 var _history: Array[Dictionary] = []
 var _max_history: int = 100
@@ -75,6 +82,10 @@ func to_dict() -> Dictionary:
 		"baseline": baseline,
 		"sigma": sigma_value,
 		"higher_is_better": higher_is_better,
+		"drift_state": MarginDrift.STATE_NAMES[drift_state],
+		"drift_direction": MarginDrift.DIRECTION_NAMES[drift_direction],
+		"drift_rate": drift_rate,
+		"is_worsening": is_worsening,
 	}
 
 
@@ -120,6 +131,20 @@ func _reclassify() -> void:
 	sigma_value = MarginHealth.sigma(current_value, baseline, higher_is_better)
 
 
+func _reclassify_drift() -> void:
+	if _history.size() < 3:
+		return
+	var values: Array = []
+	for entry in _history:
+		values.append(entry["value"])
+	var result := MarginDrift.classify(values, baseline, higher_is_better)
+	drift_state = result.state
+	drift_direction = result.direction
+	drift_rate = result.rate
+	is_worsening = drift_direction == MarginDrift.Direction.WORSENING
+	is_reverting = drift_state == MarginDrift.State.REVERTING
+
+
 func _record() -> void:
 	_history.append({
 		"value": current_value,
@@ -128,3 +153,4 @@ func _record() -> void:
 	})
 	if _history.size() > _max_history:
 		_history.pop_front()
+	_reclassify_drift()
