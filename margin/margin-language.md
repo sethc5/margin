@@ -1668,6 +1668,155 @@ outcomes. Each Expression is taken as-is.
 
 ---
 
+## `streaming.py` — Incremental trackers
+
+For production monitoring loops where you get one measurement at a time.
+Instead of collecting lists and recomputing, trackers maintain bounded
+windows and reclassify on each update.
+
+### Per-component trackers
+
+```python
+from margin import DriftTracker, AnomalyTracker
+
+# Drift: is this value's trajectory changing?
+dt = DriftTracker("cpu", window=100)
+dt.update(observation)       # or dt.update_value(80.0, baseline=100.0)
+dt.state                     # DriftState.DRIFTING
+dt.direction                 # DriftDirection.WORSENING
+dt.classification            # full DriftClassification
+
+# Anomaly: is this value statistically unusual?
+at = AnomalyTracker("cpu", window=100, min_reference=10)
+at.update(80.0)              # classify against reference window, then add
+at.state                     # AnomalyState.EXPECTED
+at.last_jump                 # Jump if a discontinuity was detected
+```
+
+### Correlation tracker
+
+```python
+from margin import CorrelationTracker
+
+ct = CorrelationTracker(["cpu", "mem", "disk"], window=50)
+ct.update({"cpu": 80, "mem": 60, "disk": 45})
+ct.matrix                    # CorrelationMatrix
+ct.strongest(3)              # top 3 correlations
+```
+
+All components must be present in each update for alignment.
+
+### Monitor — unified streaming
+
+Wraps a Parser and all trackers. One call updates everything:
+
+```python
+from margin import Monitor, Parser, Thresholds
+
+parser = Parser(
+    baselines={"cpu": 50.0, "error_rate": 0.002},
+    thresholds=Thresholds(intact=40.0, ablated=10.0),
+    component_thresholds={
+        "error_rate": Thresholds(intact=0.01, ablated=0.10, higher_is_better=False),
+    },
+)
+
+monitor = Monitor(parser, window=100)
+
+while True:
+    readings = get_sensor_data()
+    expr = monitor.update(readings)   # health + drift + anomaly + correlation
+
+    monitor.expression                # current Expression
+    monitor.drift("cpu")              # DriftClassification
+    monitor.anomaly("cpu")            # AnomalyClassification
+    monitor.correlations              # CorrelationMatrix
+    monitor.status()                  # full snapshot dict
+```
+
+All windows are bounded (default 100), so memory is constant regardless
+of how long the loop runs.
+
+---
+
+## `config.py` — Config-driven setup
+
+Define Parser, Policy, and Contract from a dict, JSON, or YAML file
+instead of writing Python.
+
+### Config format
+
+```yaml
+components:
+  cpu:
+    baseline: 50
+    intact: 80
+    ablated: 30
+  error_rate:
+    baseline: 0.002
+    intact: 0.01
+    ablated: 0.10
+    lower_is_better: true
+
+default_thresholds:
+  intact: 80
+  ablated: 30
+
+policy:
+  - name: critical
+    when: any_ablated
+    action: {op: RESTORE, alpha: 1.0}
+    priority: 50
+  - name: maintain
+    when: any_degraded
+    action: {op: RESTORE, alpha: 0.5}
+    priority: 10
+  - name: normal
+    when: all_intact
+    action: {op: NOOP}
+    priority: 0
+
+contract:
+  - name: cpu-healthy
+    component: cpu
+    health: INTACT
+```
+
+### Usage
+
+```python
+from margin import from_config, load_config
+
+# From a Python dict
+cfg = from_config(config_dict)
+# cfg["parser"]    → Parser
+# cfg["policy"]    → Policy
+# cfg["contract"]  → Contract
+
+# From a file (JSON works out of the box, YAML needs pip install pyyaml)
+cfg = load_config("margin.yaml")
+```
+
+### Predicate registry
+
+String names map to predicate factories for policy rules:
+
+- `any_intact`, `any_degraded`, `any_ablated`, `any_recovering`, `any_ood`
+- `all_intact`, `all_degraded`, `all_ablated`
+- `any_correction`
+
+Composable predicates via dict syntax:
+
+```python
+{"all_of": ["any_degraded", "any_correction"]}
+{"any_of": ["any_ablated", {"component_health": "cpu", "health": "ABLATED"}]}
+{"not": "all_intact"}
+{"sigma_below": "cpu", "threshold": -0.5}
+{"confidence_below": "low"}
+```
+
+---
+
 ## Structure
 
 ```text
@@ -1701,8 +1850,10 @@ margin/
 ├── contract.py               HealthTarget, ReachHealth, SustainHealth, etc.
 ├── causal.py                 CausalGraph, CausalLink, Explanation
 │
-│ Loop
+│ Loop + Streaming + Config
 ├── loop.py                   step(), run(), StepResult
+├── streaming.py              DriftTracker, AnomalyTracker, CorrelationTracker, Monitor
+├── config.py                 from_config(), load_config(), predicate registry
 │
 │ Policy
 └── policy/
