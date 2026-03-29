@@ -17,7 +17,10 @@ Structure:
 # Foundation
 from .confidence import Confidence
 from .validity import Validity, ValidityMode
-from .provenance import new_id, are_correlated, merge
+from .provenance import (
+    new_id, _new_id, are_correlated, merge, merge_provenance,
+    ProvenanceNode, ProvenanceGraph, create_root_provenance,
+)
 from .uncertain import UncertainValue, Source, EpistemicSource, UncertaintyMode
 from .algebra import add, subtract, multiply, divide, scale, compare, weighted_average
 from .health import Health, Thresholds, classify, SEVERITY
@@ -112,7 +115,8 @@ __all__ = [
     # Foundation
     "Confidence",
     "Validity", "ValidityMode",
-    "new_id", "are_correlated", "merge",
+    "new_id", "_new_id", "are_correlated", "merge", "merge_provenance",
+    "ProvenanceNode", "ProvenanceGraph", "create_root_provenance",
     "UncertainValue", "Source",
     "add", "subtract", "multiply", "divide", "scale", "compare", "weighted_average",
     "Health", "Thresholds", "classify", "SEVERITY",
@@ -195,4 +199,3 @@ CorrectionRecord = Record
 CorrectionLedger = Ledger
 classify_gap_health = classify
 compare_to_threshold = compare
-merge_provenance = merge
