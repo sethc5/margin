@@ -71,6 +71,8 @@ Import from `adapters/` for pre-configured thresholds:
 - `adapters.aquarium` — water chemistry
 - `adapters.greenhouse` — growing environment
 - `adapters.fitness` — wearable metrics
+- `adapters.ros2` — robot sensors: 4 profiles (mobile, manipulator, drone, AGV), ROS2 node with diagnostics bridge
+- `adapters.weather` — atmospheric conditions: 5 profiles (general, agriculture, aviation, construction, public health)
 
 ## pytest plugin
 
