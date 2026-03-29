@@ -118,6 +118,11 @@ Ready-to-use threshold profiles for specific domains:
 | [**greenhouse**](adapters/greenhouse/) | Growing environment (soil moisture, CO₂, light, VPD) | bands |
 | [**fitness**](adapters/fitness/) | Wearables (resting HR, HRV, sleep, steps, stress) | mixed |
 | [**transformer**](adapters/transformer/) | ML circuit interpretability (pythia-6.9b) | higher |
+| [**fastapi**](adapters/fastapi/) | Endpoint health (latency, error rate, throughput, queue depth) | mixed |
+| [**database**](adapters/database/) | DB health (pool usage, query latency, replication lag, deadlocks) | mixed |
+| [**celery**](adapters/celery/) | Task queue (queue depth, failure rate, worker utilization, retries) | mixed |
+| [**dataframe**](adapters/dataframe/) | Data quality (completeness, null rate, drift, freshness, schema) | mixed |
+| [**pytest**](adapters/pytest/) | Test suite health (pass rate, flake rate, coverage, duration) | mixed |
 
 ## Docs
 
