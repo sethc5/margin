@@ -272,3 +272,24 @@ class TestContractTermFromDict:
         from margin import contract_term_from_dict
         with pytest.raises(ValueError, match="Unknown"):
             contract_term_from_dict({"type": "nonexistent", "name": "x"})
+
+
+class TestContractFromDict:
+    def test_roundtrip(self):
+        from margin import Contract, SustainHealth, HealthTarget
+        c = Contract(name="my-contract", terms=[
+            HealthTarget(name="h", component="cpu", target=Health.INTACT),
+            SustainHealth(name="s", component="cpu", target=Health.INTACT, for_steps=5),
+        ])
+        c2 = Contract.from_dict(c.to_dict())
+        assert c2.name == "my-contract"
+        assert len(c2.terms) == 2
+        assert isinstance(c2.terms[0], HealthTarget)
+        assert isinstance(c2.terms[1], SustainHealth)
+
+    def test_empty_contract_roundtrip(self):
+        from margin import Contract
+        c = Contract(name="empty")
+        c2 = Contract.from_dict(c.to_dict())
+        assert c2.name == "empty"
+        assert c2.terms == []

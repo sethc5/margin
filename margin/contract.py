@@ -352,5 +352,12 @@ class Contract:
     def to_dict(self) -> dict:
         return {"name": self.name, "terms": [t.to_dict() for t in self.terms]}
 
+    @classmethod
+    def from_dict(cls, d: dict) -> 'Contract':
+        return cls(
+            name=d.get("name", ""),
+            terms=[contract_term_from_dict(t) for t in d.get("terms", [])],
+        )
+
     def __repr__(self) -> str:
         return f"Contract({self.name!r}, {len(self.terms)} terms)"

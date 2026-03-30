@@ -211,11 +211,11 @@ class Ledger:
             "n_harmful": len(self.harmful()),
         }
 
+    def to_dict(self) -> dict:
+        return {"label": self.label, "records": [r.to_dict() for r in self.records]}
+
     def to_json(self, indent: int = 2) -> str:
-        return json.dumps({
-            "label": self.label,
-            "records": [r.to_dict() for r in self.records],
-        }, indent=indent)
+        return json.dumps(self.to_dict(), indent=indent)
 
     @classmethod
     def from_dict(cls, d: dict) -> 'Ledger':

@@ -333,10 +333,13 @@ class Parser:
         """
         Parse a set of component measurements into a typed Expression.
 
-        values:     {component_name: measurement}
+        values:               {component_name: measurement}
         correction_magnitude: size of the correction being applied
-        alpha:      mixing coefficient for the correction
-        confidences: per-component confidence (defaults to MODERATE)
+        alpha:                mixing coefficient for the correction
+        confidences:          per-component Confidence overrides (defaults to MODERATE)
+        label:                tag for this expression (e.g. step identifier)
+        step:                 step index (set automatically by Monitor)
+        provenance:           provenance tags attached to all observations
         """
         confidences = confidences or {}
         provenance = provenance or []

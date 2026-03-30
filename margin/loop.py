@@ -250,6 +250,8 @@ class FullStepResult:
             d["drift"] = {k: v.to_dict() for k, v in self.drift.items()}
         if self.anomaly:
             d["anomaly"] = {k: v.to_dict() for k, v in self.anomaly.items()}
+        if self.correlations is not None and self.correlations.to_dict():
+            d["correlations"] = self.correlations.to_dict()
         if self.intent:
             d["intent"] = self.intent.to_dict()
         return d
@@ -292,14 +294,17 @@ def full_step(
       3. Intent.evaluate() → goal feasibility
 
     Args:
-        monitor:   streaming Monitor
-        values:    raw measurements {component: value}
-        policy:    decision policy
-        ledger:    correction ledger (optional)
-        graph:     causal graph (optional)
-        contract:  success contract (optional)
-        intent:    Intent goal (optional)
-        now:       current timestamp (optional)
+        monitor:      streaming Monitor
+        values:       raw measurements {component: value}
+        policy:       decision policy
+        ledger:       correction ledger (optional)
+        graph:        causal graph (optional)
+        contract:     success contract (optional)
+        intent:       Intent goal (optional)
+        now:          current timestamp (optional)
+        confidences:  per-component Confidence overrides (optional)
+        provenance:   provenance tags for all observations (optional)
+        label:        expression label for this step (optional)
 
     Returns FullStepResult with all stages evaluated.
     """

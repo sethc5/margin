@@ -244,3 +244,59 @@ class TestConfigConstraintEscalation:
         }
         result = from_config(cfg)
         assert isinstance(result["contract"].terms[0], HealthTarget)
+
+
+class TestConfigNewFields:
+    def test_alpha_from_sigma_in_config(self):
+        from margin import from_config
+        cfg = {
+            "components": {"cpu": {"baseline": 50.0, "intact": 40.0, "ablated": 10.0}},
+            "policy": [{
+                "name": "dynamic",
+                "when": "any_degraded",
+                "action": {"op": "RESTORE", "alpha_from_sigma": True},
+            }],
+        }
+        result = from_config(cfg)
+        assert result["policy"].rules[0].action.alpha_from_sigma is True
+
+    def test_min_confidence_in_config(self):
+        from margin import from_config
+        from margin.confidence import Confidence
+        cfg = {
+            "components": {"cpu": {"baseline": 50.0, "intact": 40.0, "ablated": 10.0}},
+            "policy": [{
+                "name": "high-conf-only",
+                "when": "any_degraded",
+                "action": {"op": "RESTORE", "alpha": 0.5},
+                "min_confidence": "high",
+            }],
+        }
+        result = from_config(cfg)
+        assert result["policy"].rules[0].min_confidence == Confidence.HIGH
+
+    def test_multi_rule_in_config(self):
+        from margin import from_config
+        cfg = {
+            "name": "my-policy",
+            "multi_rule": True,
+            "components": {"cpu": {"baseline": 50.0, "intact": 40.0, "ablated": 10.0}},
+            "policy": [{"name": "r", "when": "any_degraded", "action": {"op": "RESTORE"}}],
+        }
+        result = from_config(cfg)
+        assert result["policy"].multi_rule is True
+
+    def test_labels_in_config(self):
+        from margin import from_config
+        cfg = {
+            "components": {
+                "cpu": {
+                    "baseline": 50.0, "intact": 40.0, "ablated": 10.0,
+                    "labels": {"ABLATED": "CRITICAL", "INTACT": "OK"},
+                }
+            },
+        }
+        result = from_config(cfg)
+        from margin.health import Health
+        assert result["parser"].label_for("cpu", Health.ABLATED) == "CRITICAL"
+        assert result["parser"].label_for("cpu", Health.INTACT) == "OK"

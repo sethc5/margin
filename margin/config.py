@@ -125,6 +125,7 @@ def from_config(config: dict) -> dict:
             intact=spec.get("intact", default_intact),
             ablated=spec.get("ablated", default_ablated),
             higher_is_better=hib,
+            labels=spec.get("labels"),
         )
 
     # Use first component's thresholds as default (or the explicit default)
@@ -153,6 +154,8 @@ def from_config(config: dict) -> dict:
                 op=Op(action_spec.get("op", "RESTORE")),
                 alpha=action_spec.get("alpha", 0.5),
                 magnitude=action_spec.get("magnitude", 1.0),
+                alpha_from_sigma=action_spec.get("alpha_from_sigma", False),
+                magnitude_from_sigma=action_spec.get("magnitude_from_sigma", False),
             )
             constraint = None
             if "constraint" in spec:
@@ -171,6 +174,8 @@ def from_config(config: dict) -> dict:
                     level=EscalationLevel(es.get("level", "LOG")),
                     reason=es.get("reason", ""),
                 )
+            min_conf_str = spec.get("min_confidence")
+            min_confidence = Confidence(min_conf_str) if min_conf_str else Confidence.LOW
             rules.append(PolicyRule(
                 name=spec["name"],
                 predicate=predicate,
@@ -178,8 +183,13 @@ def from_config(config: dict) -> dict:
                 priority=spec.get("priority", 0),
                 constraint=constraint,
                 escalation=escalation,
+                min_confidence=min_confidence,
             ))
-        result["policy"] = Policy(name=config.get("name", "config-policy"), rules=rules)
+        result["policy"] = Policy(
+            name=config.get("name", "config-policy"),
+            rules=rules,
+            multi_rule=config.get("multi_rule", False),
+        )
 
     # --- Contract ---
     contract_specs = config.get("contract", [])

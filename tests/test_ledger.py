@@ -197,3 +197,27 @@ class TestLedgerRoundtrip:
         assert lr.records[0].op == Op.RESTORE
         assert lr.records[1].after is None
         assert lr.render() == ledger.render()
+
+
+class TestLedgerToDict:
+    def test_to_dict_roundtrip(self):
+        from margin.ledger import Ledger, Record
+        from margin.observation import Observation, Op
+        from margin.health import Health
+        from margin.confidence import Confidence
+
+        obs = Observation("cpu", Health.DEGRADED, 30.0, 50.0, Confidence.HIGH)
+        rec = Record(step=0, tag="s0", before=obs, fired=False, op=Op.NOOP, alpha=0.0)
+        ledger = Ledger(label="test", records=[rec])
+        d = ledger.to_dict()
+        assert d["label"] == "test"
+        assert len(d["records"]) == 1
+        ledger2 = Ledger.from_dict(d)
+        assert ledger2.label == "test"
+        assert len(ledger2.records) == 1
+
+    def test_to_json_uses_to_dict(self):
+        import json
+        from margin.ledger import Ledger
+        ledger = Ledger(label="x")
+        assert json.loads(ledger.to_json())["label"] == "x"

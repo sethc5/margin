@@ -9,6 +9,25 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [0.9.7] — 2026-03-30
+
+### Added
+
+- `Ledger.to_dict()`: `to_json()` now delegates to `to_dict()` — symmetric with existing `Ledger.from_dict()` and `from_json()`
+- `Contract.from_dict(d)`: deserialize a `Contract` and all its terms from a dict produced by `Contract.to_dict()` — uses `contract_term_from_dict` internally
+- `from_config()`: `alpha_from_sigma` and `magnitude_from_sigma` now supported on action specs; `min_confidence` on rule specs; `multi_rule` at top-level policy config; `labels` on component threshold specs
+
+### Fixed
+
+- `FullStepResult.to_dict()`: `correlations` field was silently omitted — now serialized when present
+
+### Documentation
+
+- `full_step()` docstring: documents `confidences`, `provenance`, and `label` parameters added in v0.9.6
+- `Parser.parse()` docstring: documents `label`, `step`, and `provenance` parameters
+
+---
+
 ## [0.9.6] — 2026-03-30
 
 ### Added
