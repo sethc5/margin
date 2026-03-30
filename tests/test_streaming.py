@@ -519,3 +519,77 @@ class TestMonitorProvenanceGraph:
         lineage = pg.trace_lineage(step_id)
         assert len(lineage) == 1
         assert lineage[0].id == step_id
+
+
+class TestMonitorFingerprint:
+    def _parser(self):
+        return Parser({"cpu": 100.0, "mem": 80.0}, Thresholds(intact=80.0, ablated=40.0))
+
+    def test_fingerprint_empty_before_updates(self):
+        m = Monitor(self._parser())
+        fp = m.fingerprint()
+        assert set(fp.keys()) == {"cpu", "mem"}
+        assert fp["cpu"]["n"] == 0
+        assert fp["cpu"]["trend"] == "UNKNOWN"
+        assert fp["cpu"]["mean"] == 100.0  # falls back to parser baseline
+
+    def test_fingerprint_mean_and_n(self):
+        m = Monitor(self._parser())
+        for v in [90.0, 95.0, 85.0]:
+            m.update({"cpu": v, "mem": 75.0})
+        fp = m.fingerprint()
+        assert fp["cpu"]["n"] == 3
+        assert abs(fp["cpu"]["mean"] - 90.0) < 0.01
+
+    def test_fingerprint_std(self):
+        m = Monitor(self._parser())
+        for v in [90.0, 90.0, 90.0]:
+            m.update({"cpu": v, "mem": 75.0})
+        fp = m.fingerprint()
+        assert fp["cpu"]["std"] == 0.0
+
+    def test_fingerprint_trend_populated(self):
+        m = Monitor(self._parser())
+        for i in range(10):
+            m.update({"cpu": 90.0 - i * 2, "mem": 75.0})
+        fp = m.fingerprint()
+        assert fp["cpu"]["trend"] in {"STABLE", "DRIFTING", "ACCELERATING",
+                                       "DECELERATING", "REVERTING", "OSCILLATING"}
+
+
+class TestParserWithBaselines:
+    def _parser(self):
+        return Parser(
+            {"cpu": 100.0, "mem": 80.0},
+            Thresholds(intact=80.0, ablated=40.0),
+        )
+
+    def test_updated_baseline(self):
+        p = self._parser()
+        p2 = p.with_baselines({"cpu": {"mean": 92.0, "std": 3.0, "n": 50, "trend": "STABLE"}})
+        assert p2.baselines["cpu"] == 92.0
+        assert p2.baselines["mem"] == 80.0  # unchanged
+
+    def test_unknown_component_ignored(self):
+        p = self._parser()
+        p2 = p.with_baselines({"gpu": {"mean": 70.0}})
+        assert p2.baselines == p.baselines
+
+    def test_thresholds_preserved(self):
+        p = self._parser()
+        p2 = p.with_baselines({"cpu": {"mean": 92.0}})
+        assert p2.thresholds is p.thresholds
+        assert p2.component_thresholds == p.component_thresholds
+
+    def test_original_parser_unchanged(self):
+        p = self._parser()
+        p.with_baselines({"cpu": {"mean": 92.0}})
+        assert p.baselines["cpu"] == 100.0  # original untouched
+
+    def test_fingerprint_roundtrip(self):
+        m = Monitor(self._parser())
+        for v in [88.0, 90.0, 92.0]:
+            m.update({"cpu": v, "mem": 75.0})
+        fp = m.fingerprint()
+        p2 = m.parser.with_baselines(fp)
+        assert abs(p2.baselines["cpu"] - fp["cpu"]["mean"]) < 0.001

@@ -565,6 +565,44 @@ class Monitor:
             d["provenance_nodes"] = len(self.provenance_graph.nodes)
         return d
 
+    def fingerprint(self) -> dict[str, dict]:
+        """
+        Session statistics for each component from the current drift window.
+
+        Returns ``{name: {mean, std, n, trend}}`` where:
+
+        - ``mean``  — empirical mean of values in the window
+        - ``std``   — sample standard deviation (0.0 if n < 2)
+        - ``n``     — number of observations currently in the window
+        - ``trend`` — DriftState value string, or ``"UNKNOWN"`` if < min_samples
+
+        Typical use: dispositional calibration before a session boundary.
+
+            fp = monitor.fingerprint()
+            new_parser = monitor.parser.with_baselines(fp)
+        """
+        result: dict[str, dict] = {}
+        for name, tracker in self._drift_trackers.items():
+            obs = list(tracker._observations)
+            n = len(obs)
+            if n == 0:
+                result[name] = {
+                    "mean": self.parser.baselines.get(name, 0.0),
+                    "std": 0.0, "n": 0, "trend": "UNKNOWN",
+                }
+                continue
+            values = [o.value for o in obs]
+            mean = sum(values) / n
+            std = (sum((v - mean) ** 2 for v in values) / (n - 1)) ** 0.5 if n >= 2 else 0.0
+            dc = tracker.classification
+            result[name] = {
+                "mean": mean,
+                "std": std,
+                "n": n,
+                "trend": dc.state.value if dc is not None else "UNKNOWN",
+            }
+        return result
+
     def reset_anomaly_reference(self, components: Optional[list[str]] = None) -> None:
         """
         Clear AnomalyTracker reference windows for the specified components.

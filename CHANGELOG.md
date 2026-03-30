@@ -9,6 +9,18 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [0.9.11] — 2026-03-30
+
+### Added
+
+- `Monitor.fingerprint()` → `{name: {mean, std, n, trend}}`: session statistics from the current drift window per component — empirical mean, sample std, observation count, and DriftState string; `trend="UNKNOWN"` when fewer than min_samples observations exist; designed for dispositional calibration at session boundaries
+- `Parser.with_baselines(fingerprint)` → `Parser`: create a new Parser with baselines shifted to empirical session means from a fingerprint dict; components absent from the fingerprint keep their original baselines; all thresholds preserved; non-mutating — original Parser unchanged
+- `load_monitor(path, parser, warm_only=False)`: new `warm_only` flag — when `True`, loads drift observations (warm prior) but starts fresh on anomaly trackers, correlation history, and step count; enables new-session continuation that inherits trajectory without contaminating anomaly reference windows
+- `DriftClassification.step_count`: property alias for `n_samples` — number of observations that contributed to the current classification; distinguishes noise (3-step OSCILLATING) from signal (20-step OSCILLATING)
+- `ProvenanceGraph.compress(max_nodes=500)` → `self`: prune oldest nodes by insertion order to stay within `max_nodes`; cleans dangling `source_ids` in surviving nodes; returns self for chaining before `save_monitor`
+
+---
+
 ## [0.9.10] — 2026-03-30
 
 ### Added

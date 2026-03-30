@@ -72,6 +72,12 @@ class DriftClassification:
     window_seconds: float
 
     @property
+    def step_count(self) -> int:
+        """Number of observations that contributed to this classification.
+        A 3-step OSCILLATING is noise; a 20-step OSCILLATING is real."""
+        return self.n_samples
+
+    @property
     def stable(self) -> bool:
         return self.state == DriftState.STABLE
 

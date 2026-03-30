@@ -59,14 +59,19 @@ def save_monitor(monitor: Monitor, path: str) -> None:
     Path(path).write_text(json.dumps(state, indent=2))
 
 
-def load_monitor(path: str, parser: Parser, **kwargs) -> Monitor:
+def load_monitor(path: str, parser: Parser, warm_only: bool = False, **kwargs) -> Monitor:
     """
     Restore a Monitor from a saved state file.
 
     Args:
-        path:    path to the state JSON
-        parser:  the Parser to use (must match the saved components)
-        **kwargs: passed to Monitor constructor (window, min_correlation, etc.)
+        path:      path to the state JSON
+        parser:    the Parser to use (must match the saved components)
+        warm_only: if True, load drift observations only — anomaly and
+                   correlation trackers start fresh and step count resets
+                   to 0. Use this when starting a new session that should
+                   inherit drift trajectory (warm prior) but not anomaly
+                   reference windows or correlation history.
+        **kwargs:  passed to Monitor constructor (window, min_correlation, etc.)
     """
     data = json.loads(Path(path).read_text())
 
@@ -86,7 +91,7 @@ def load_monitor(path: str, parser: Parser, **kwargs) -> Monitor:
         features=features,
         **kwargs,
     )
-    monitor._step = data.get("step", 0)
+    monitor._step = 0 if warm_only else data.get("step", 0)
 
     # Restore provenance graph if present
     pg_data = data.get("provenance_graph")
@@ -105,21 +110,22 @@ def load_monitor(path: str, parser: Parser, **kwargs) -> Monitor:
                 from .drift import classify_drift
                 tracker._classification = classify_drift(list(tracker._observations))
 
-    # Restore anomaly tracker values
-    for name, at_data in data.get("anomaly", {}).items():
-        if name in monitor._anomaly_trackers:
-            tracker = monitor._anomaly_trackers[name]
-            for v in at_data.get("values", []):
-                tracker._values.append(v)
+    # Restore anomaly tracker values (skipped in warm_only mode)
+    if not warm_only:
+        for name, at_data in data.get("anomaly", {}).items():
+            if name in monitor._anomaly_trackers:
+                tracker = monitor._anomaly_trackers[name]
+                for v in at_data.get("values", []):
+                    tracker._values.append(v)
 
-    # Restore correlation series
-    corr_data = data.get("correlation")
-    if corr_data is not None and monitor._correlation_tracker is not None:
-        for c in monitor._correlation_tracker.components:
-            series = corr_data.get("series", {}).get(c, [])
-            for v in series:
-                monitor._correlation_tracker._series[c].append(v)
-        monitor._correlation_tracker._n_updates = corr_data.get("n_updates", 0)
+        # Restore correlation series (skipped in warm_only mode)
+        corr_data = data.get("correlation")
+        if corr_data is not None and monitor._correlation_tracker is not None:
+            for c in monitor._correlation_tracker.components:
+                series = corr_data.get("series", {}).get(c, [])
+                for v in series:
+                    monitor._correlation_tracker._series[c].append(v)
+            monitor._correlation_tracker._n_updates = corr_data.get("n_updates", 0)
 
     return monitor
 

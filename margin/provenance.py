@@ -111,6 +111,30 @@ class ProvenanceGraph:
         self.add_node(ProvenanceNode(id=node_id, operation=operation, source_ids=source_ids))
         return node_id
 
+    def compress(self, max_nodes: int = 500) -> 'ProvenanceGraph':
+        """
+        Prune the oldest nodes to stay within max_nodes.
+
+        Nodes are removed in insertion order (oldest first). Any
+        ``source_ids`` in surviving nodes that reference a pruned node
+        are removed, so the graph stays self-consistent — survivors
+        whose parents were pruned become new roots.
+
+        Returns self for chaining (e.g. before save_monitor).
+
+            monitor.provenance_graph.compress(500)
+            save_monitor(monitor, "state.json")
+        """
+        if len(self.nodes) <= max_nodes:
+            return self
+        all_ids = list(self.nodes.keys())
+        pruned = set(all_ids[:-max_nodes])
+        for node_id in pruned:
+            del self.nodes[node_id]
+        for node in self.nodes.values():
+            node.source_ids = [sid for sid in node.source_ids if sid not in pruned]
+        return self
+
     def to_dict(self) -> dict:
         return {"nodes": {k: v.to_dict() for k, v in self.nodes.items()}}
 

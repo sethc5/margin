@@ -497,3 +497,18 @@ class TestDriftForecast:
         assert df.drift.state == DriftState.STABLE
         # No ETA in summary for stable
         assert "ETA" not in df.summary
+
+
+class TestDriftClassificationStepCount:
+    def test_step_count_equals_n_samples(self):
+        from margin.drift import DriftClassification, DriftState, DriftDirection
+        from margin.confidence import Confidence
+        dc = DriftClassification(
+            component="cpu", state=DriftState.STABLE,
+            direction=DriftDirection.NEUTRAL, rate=0.0,
+            acceleration=0.0, r_squared=0.9,
+            confidence=Confidence.HIGH, n_samples=17,
+            window_seconds=120.0,
+        )
+        assert dc.step_count == 17
+        assert dc.step_count == dc.n_samples

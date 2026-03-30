@@ -320,6 +320,31 @@ class Parser:
         """Return the display label for a component's health state."""
         return self._thresholds_for(component).label_for(health)
 
+    def with_baselines(self, fingerprint: dict[str, dict]) -> 'Parser':
+        """
+        Return a new Parser with baselines updated from a fingerprint dict.
+
+        Components present in ``fingerprint`` get their baseline replaced with
+        ``fingerprint[name]["mean"]``. All other components and all thresholds
+        are preserved unchanged.
+
+        Typical use: dispositional calibration from ``Monitor.fingerprint()``
+        at a session boundary, without full Parser reconstruction.
+
+            fp = monitor.fingerprint()
+            new_parser = monitor.parser.with_baselines(fp)
+            # new_parser has empirical session means as baselines
+        """
+        new_baselines = dict(self.baselines)
+        for name, stats in fingerprint.items():
+            if name in new_baselines and "mean" in stats:
+                new_baselines[name] = stats["mean"]
+        return Parser(
+            baselines=new_baselines,
+            thresholds=self.thresholds,
+            component_thresholds=dict(self.component_thresholds),
+        )
+
     def parse(
         self,
         values: dict[str, float],

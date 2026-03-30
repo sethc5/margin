@@ -296,3 +296,59 @@ class TestProvenanceGraphRoundtrip:
 
         assert data.get("provenance_graph") is None
         assert m2.provenance_graph is None
+
+
+class TestLoadMonitorWarmOnly:
+    def test_warm_only_resets_step(self):
+        p = _parser()
+        m = Monitor(p)
+        for i in range(20):
+            m.update({"cpu": 50.0, "mem": 70.0}, now=t0 + timedelta(seconds=i * 60))
+
+        with tempfile.NamedTemporaryFile(suffix=".json", delete=False) as f:
+            save_monitor(m, f.name)
+            m2 = load_monitor(f.name, p, warm_only=True)
+            Path(f.name).unlink()
+
+        assert m2.step == 0  # fresh session
+
+    def test_warm_only_keeps_drift_observations(self):
+        p = _parser()
+        m = Monitor(p)
+        for i in range(20):
+            m.update({"cpu": 50.0 - i * 0.5, "mem": 70.0},
+                     now=t0 + timedelta(seconds=i * 60))
+
+        with tempfile.NamedTemporaryFile(suffix=".json", delete=False) as f:
+            save_monitor(m, f.name)
+            m2 = load_monitor(f.name, p, warm_only=True)
+            Path(f.name).unlink()
+
+        assert m2._drift_trackers["cpu"].n_observations > 0
+
+    def test_warm_only_clears_anomaly(self):
+        p = _parser()
+        m = Monitor(p)
+        for i in range(20):
+            m.update({"cpu": 50.0, "mem": 70.0}, now=t0 + timedelta(seconds=i * 60))
+
+        with tempfile.NamedTemporaryFile(suffix=".json", delete=False) as f:
+            save_monitor(m, f.name)
+            m2 = load_monitor(f.name, p, warm_only=True)
+            Path(f.name).unlink()
+
+        assert all(t._values == [] or len(t._values) == 0
+                   for t in m2._anomaly_trackers.values())
+
+    def test_warm_only_false_restores_everything(self):
+        p = _parser()
+        m = Monitor(p)
+        for i in range(20):
+            m.update({"cpu": 50.0, "mem": 70.0}, now=t0 + timedelta(seconds=i * 60))
+
+        with tempfile.NamedTemporaryFile(suffix=".json", delete=False) as f:
+            save_monitor(m, f.name)
+            m2 = load_monitor(f.name, p, warm_only=False)
+            Path(f.name).unlink()
+
+        assert m2.step == 20
