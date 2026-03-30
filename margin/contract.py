@@ -232,6 +232,38 @@ class NoHarmful(ContractTerm):
         return {"type": "no_harmful", "name": self.name, "over_steps": self.over_steps}
 
 
+_TERM_TYPES: dict = {
+    "health_target": lambda d: HealthTarget(
+        name=d["name"], component=d["component"],
+        target=Health(d["target"]), or_better=d.get("or_better", True),
+    ),
+    "reach_health": lambda d: ReachHealth(
+        name=d["name"], component=d["component"],
+        target=Health(d["target"]), within_steps=d["within_steps"],
+    ),
+    "sustain_health": lambda d: SustainHealth(
+        name=d["name"], component=d["component"],
+        target=Health(d["target"]), for_steps=d["for_steps"],
+        or_better=d.get("or_better", True),
+    ),
+    "recovery_threshold": lambda d: RecoveryThreshold(
+        name=d["name"], min_recovery=d["min_recovery"], over_steps=d["over_steps"],
+    ),
+    "no_harmful": lambda d: NoHarmful(
+        name=d["name"], over_steps=d["over_steps"],
+    ),
+}
+
+
+def contract_term_from_dict(d: dict) -> ContractTerm:
+    """Deserialize a ContractTerm subclass from a dict produced by its to_dict()."""
+    term_type = d.get("type")
+    if term_type not in _TERM_TYPES:
+        raise ValueError(f"Unknown contract term type: {term_type!r}. "
+                         f"Expected one of: {list(_TERM_TYPES)}")
+    return _TERM_TYPES[term_type](d)
+
+
 # -----------------------------------------------------------------------
 # Contract — a set of terms evaluated together
 # -----------------------------------------------------------------------

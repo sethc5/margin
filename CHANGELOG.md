@@ -9,6 +9,19 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [0.9.5] — 2026-03-30
+
+### Added
+
+- `contract_term_from_dict(d)`: factory to deserialize any `ContractTerm` subclass from its `to_dict()` output — `HealthTarget`, `ReachHealth`, `SustainHealth`, `RecoveryThreshold`, `NoHarmful` all round-trip correctly; raises `ValueError` on unknown `"type"` key
+
+### Fixed
+
+- `StepResult.acted`: now returns `True` when `policy.multi_rule=True` and a real correction exists in `StepResult.corrections` even if the highest-priority result was an `Escalation` — previously only checked `StepResult.correction` (the first result), so a suppressed top rule + active lower rule returned `False` incorrectly
+- `recalibrate_parser(active_min=...)`: default changed from `0.05` to `None`; `None` inherits `active_min` from the existing parser's thresholds, an explicit value (including `0.05`) now overrides — previously passing `active_min=0.05` explicitly was silently treated as "inherit"
+
+---
+
 ## [0.9.4] — 2026-03-30
 
 ### Added

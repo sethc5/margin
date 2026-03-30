@@ -82,6 +82,7 @@ from .contract import (
     HealthTarget, ReachHealth, SustainHealth,
     RecoveryThreshold, NoHarmful,
     ContractResult, Contract,
+    contract_term_from_dict,
 )
 
 # Correlation
@@ -164,7 +165,7 @@ __all__ = [
     "TermStatus", "TermResult", "ContractTerm",
     "HealthTarget", "ReachHealth", "SustainHealth",
     "RecoveryThreshold", "NoHarmful",
-    "ContractResult", "Contract",
+    "ContractResult", "Contract", "contract_term_from_dict",
     # Correlation
     "Correlation", "CorrelationMatrix",
     "correlate_pair", "correlate", "correlate_from_ledger",

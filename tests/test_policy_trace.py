@@ -1,4 +1,5 @@
 import pytest
+from margin.loop import step
 from margin.policy.core import Policy, PolicyRule, Action, Constraint, Escalation, EscalationLevel
 from margin.policy.trace import trace_evaluate, trace_backtest, DecisionTrace
 from margin.observation import Observation, Expression, Op
@@ -140,9 +141,6 @@ class TestBacktestProposedBy:
 
 class TestMultiRule:
     def _make_multi_policy(self):
-        from margin.policy.core import Policy, PolicyRule, Action
-        from margin.observation import Op
-        from margin.predicates import any_health, any_degraded
         return Policy(
             name="multi",
             multi_rule=True,
@@ -169,9 +167,6 @@ class TestMultiRule:
     def test_trace_always_has_all_matched_results(self):
         # trace_evaluate always populates dt.results for all matches;
         # multi_rule only gates StepResult.corrections in step()
-        from margin.policy.core import Policy, PolicyRule, Action
-        from margin.observation import Op
-        from margin.predicates import any_degraded
         policy = Policy(
             name="single",
             multi_rule=False,
@@ -191,7 +186,6 @@ class TestMultiRule:
         assert d["multi_rule"] is True
 
     def test_multi_rule_default_is_false(self):
-        from margin.policy.core import Policy
         policy = Policy(name="p", rules=[])
         assert policy.multi_rule is False
         assert policy.to_dict()["multi_rule"] is False
@@ -199,11 +193,6 @@ class TestMultiRule:
 
 class TestStepResultCorrections:
     def test_step_corrections_populated_multi_rule(self):
-        from margin.loop import step
-        from margin.policy.core import Policy, PolicyRule, Action
-        from margin.observation import Op
-        from margin.predicates import any_degraded
-
         policy = Policy(
             name="multi",
             multi_rule=True,
@@ -216,11 +205,6 @@ class TestStepResultCorrections:
         assert len(result.corrections) >= 1
 
     def test_step_corrections_empty_single_rule(self):
-        from margin.loop import step
-        from margin.policy.core import Policy, PolicyRule, Action
-        from margin.observation import Op
-        from margin.predicates import any_degraded
-
         policy = Policy(
             name="single",
             multi_rule=False,
@@ -229,3 +213,42 @@ class TestStepResultCorrections:
         result = step(_expr(_obs("x", Health.DEGRADED)), policy)
         # multi_rule=False → corrections list is empty (only .correction populated)
         assert result.corrections == []
+
+
+class TestStepResultActed:
+    def test_acted_true_when_correction_active(self):
+        policy = Policy(
+            name="p", multi_rule=False,
+            rules=[PolicyRule("r", any_degraded(), Action(target="*", op=Op.RESTORE, alpha=0.5))],
+        )
+        result = step(_expr(_obs("x", Health.DEGRADED)), policy)
+        assert result.acted is True
+
+    def test_acted_false_on_noop(self):
+        from margin.predicates import any_health
+        policy = Policy(
+            name="p", multi_rule=False,
+            rules=[PolicyRule("r", any_health(Health.DEGRADED), Action(target="*", op=Op.NOOP))],
+        )
+        result = step(_expr(_obs("x", Health.DEGRADED)), policy)
+        assert result.acted is False
+
+    def test_acted_true_when_correction_in_multi_rule_corrections_list(self):
+        # First result is Escalation (no min_alpha satisfied), second is a Correction
+        # multi_rule=True → both fire; acted should see the Correction in .corrections
+        policy = Policy(
+            name="p", multi_rule=True,
+            rules=[
+                PolicyRule("esc", any_degraded(),
+                           Action(target="*", op=Op.RESTORE, alpha=0.1),
+                           constraint=Constraint(min_alpha=0.9),  # suppressed → escalation
+                           priority=10),
+                PolicyRule("fix", any_degraded(),
+                           Action(target="*", op=Op.RESTORE, alpha=0.5),
+                           priority=5),
+            ],
+        )
+        result = step(_expr(_obs("x", Health.DEGRADED, 10.0)), policy)
+        # .corrections contains the Correction from "fix"
+        assert any(c.is_active() for c in result.corrections)
+        assert result.acted is True

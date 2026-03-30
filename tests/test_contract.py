@@ -222,3 +222,53 @@ class TestContract:
         d = r.to_dict()
         assert d["all_met"] is True
         assert d["n_met"] == 1
+
+
+class TestContractTermFromDict:
+    def test_health_target_roundtrip(self):
+        from margin import contract_term_from_dict
+        from margin import HealthTarget
+        t = HealthTarget(name="t1", component="cpu", target=Health.INTACT)
+        t2 = contract_term_from_dict(t.to_dict())
+        assert isinstance(t2, HealthTarget)
+        assert t2.name == "t1"
+        assert t2.component == "cpu"
+        assert t2.target == Health.INTACT
+        assert t2.or_better is True
+
+    def test_reach_health_roundtrip(self):
+        from margin import contract_term_from_dict
+        from margin import ReachHealth
+        t = ReachHealth(name="r1", component="mem", target=Health.DEGRADED, within_steps=10)
+        t2 = contract_term_from_dict(t.to_dict())
+        assert isinstance(t2, ReachHealth)
+        assert t2.within_steps == 10
+
+    def test_sustain_health_roundtrip(self):
+        from margin import contract_term_from_dict
+        from margin import SustainHealth
+        t = SustainHealth(name="s1", component="cpu", target=Health.INTACT,
+                          for_steps=5, or_better=False)
+        t2 = contract_term_from_dict(t.to_dict())
+        assert isinstance(t2, SustainHealth)
+        assert t2.for_steps == 5
+        assert t2.or_better is False
+
+    def test_recovery_threshold_roundtrip(self):
+        from margin import contract_term_from_dict, RecoveryThreshold
+        t = RecoveryThreshold(name="rt", min_recovery=0.8, over_steps=20)
+        t2 = contract_term_from_dict(t.to_dict())
+        assert isinstance(t2, RecoveryThreshold)
+        assert t2.min_recovery == pytest.approx(0.8)
+
+    def test_no_harmful_roundtrip(self):
+        from margin import contract_term_from_dict, NoHarmful
+        t = NoHarmful(name="nh", over_steps=15)
+        t2 = contract_term_from_dict(t.to_dict())
+        assert isinstance(t2, NoHarmful)
+        assert t2.over_steps == 15
+
+    def test_unknown_type_raises(self):
+        from margin import contract_term_from_dict
+        with pytest.raises(ValueError, match="Unknown"):
+            contract_term_from_dict({"type": "nonexistent", "name": "x"})

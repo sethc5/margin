@@ -50,7 +50,9 @@ class StepResult:
     @property
     def acted(self) -> bool:
         """True if a real correction was produced (not NOOP, not escalation)."""
-        return self.correction is not None and self.correction.is_active()
+        if self.correction is not None and self.correction.is_active():
+            return True
+        return any(c.is_active() for c in self.corrections)
 
     @property
     def escalated(self) -> bool:

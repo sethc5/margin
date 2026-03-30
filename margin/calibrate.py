@@ -312,7 +312,7 @@ def recalibrate_parser(
     components: Optional[list[str]] = None,
     intact_fraction: float = 0.70,
     ablated_fraction: float = 0.30,
-    active_min: float = 0.05,
+    active_min: Optional[float] = None,
     use_std: bool = False,
     intact_std_multiplier: float = 1.5,
     ablated_std_multiplier: float = 3.0,
@@ -338,8 +338,8 @@ def recalibrate_parser(
                                  all components in new_healthy_data are recalibrated
         intact_fraction:         fraction of baseline for intact threshold (fraction mode)
         ablated_fraction:        fraction of baseline for ablated threshold (fraction mode)
-        active_min:              inherited from existing parser thresholds; pass only
-                                 to override for recalibrated components
+        active_min:              None (default) inherits from each component's existing
+                                 threshold; pass an explicit float to override
         use_std:                 if True, use std-based thresholds (see calibrate())
         intact_std_multiplier:   std deviations for intact threshold (std mode)
         ablated_std_multiplier:  std deviations for ablated threshold (std mode)
@@ -373,8 +373,8 @@ def recalibrate_parser(
         # Resolve polarity: explicit override → existing parser polarity → True
         existing_t = parser.component_thresholds.get(name) or parser.thresholds
         hib = polarities.get(name, existing_t.higher_is_better)
-        # Inherit active_min from existing thresholds unless caller overrides
-        component_active_min = existing_t.active_min if active_min == 0.05 else active_min
+        # Inherit active_min from existing thresholds unless caller provides an explicit override
+        component_active_min = existing_t.active_min if active_min is None else active_min
         result = calibrate(
             vals, hib, intact_fraction, ablated_fraction, component_active_min,
             use_std=use_std,

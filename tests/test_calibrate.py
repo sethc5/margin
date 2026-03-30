@@ -208,3 +208,46 @@ class TestCalibrateManyReturnParser:
         import pytest
         with pytest.raises(ValueError):
             calibrate_many({}, return_parser=True)
+
+
+class TestRecalibrateParserActiveMin:
+    def test_none_inherits_from_existing_parser(self):
+        from margin.calibrate import recalibrate_parser
+        # Parser with non-default active_min
+        parser = parser_from_calibration({"cpu": [100.0] * 5})
+        # Manually set a custom active_min on the thresholds
+        import dataclasses
+        custom_thresh = dataclasses.replace(parser.thresholds, active_min=0.15)
+        parser2 = parser.__class__(
+            baselines=parser.baselines,
+            thresholds=custom_thresh,
+            component_thresholds=parser.component_thresholds,
+        )
+        new_parser, _ = recalibrate_parser(parser2, {"cpu": [110.0] * 5})
+        # active_min should be inherited as 0.15, not the old 0.05 sentinel
+        result_thresh = new_parser.component_thresholds.get("cpu") or new_parser.thresholds
+        assert result_thresh.active_min == pytest.approx(0.15)
+
+    def test_explicit_active_min_overrides_existing(self):
+        from margin.calibrate import recalibrate_parser
+        parser = parser_from_calibration({"cpu": [100.0] * 5})
+        new_parser, _ = recalibrate_parser(parser, {"cpu": [110.0] * 5}, active_min=0.20)
+        result_thresh = new_parser.component_thresholds.get("cpu") or new_parser.thresholds
+        assert result_thresh.active_min == pytest.approx(0.20)
+
+    def test_explicit_005_is_not_swallowed(self):
+        # Regression: before fix, active_min=0.05 was sentinel for "inherit"
+        # so an explicit 0.05 would be silently replaced by existing parser's value
+        from margin.calibrate import recalibrate_parser
+        import dataclasses
+        parser = parser_from_calibration({"cpu": [100.0] * 5})
+        custom_thresh = dataclasses.replace(parser.thresholds, active_min=0.30)
+        parser2 = parser.__class__(
+            baselines=parser.baselines,
+            thresholds=custom_thresh,
+            component_thresholds=parser.component_thresholds,
+        )
+        # Explicitly pass 0.05 — should get 0.05, not 0.30
+        new_parser, _ = recalibrate_parser(parser2, {"cpu": [110.0] * 5}, active_min=0.05)
+        result_thresh = new_parser.component_thresholds.get("cpu") or new_parser.thresholds
+        assert result_thresh.active_min == pytest.approx(0.05)
