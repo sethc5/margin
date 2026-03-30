@@ -45,6 +45,10 @@ class CausalLink:
     strength:   0.0-1.0, how strong the relationship is (1.0 = deterministic)
     condition:  optional — this link only applies when source is in this health state
     evidence:   free text — why we believe this link exists
+    origin:     "asserted" (manually declared) or "discovered" (auto_causal_graph).
+                Asserted links are authoritative. Discovered links are correlational
+                heuristics — lag-based causal direction is plausible but not proven.
+                Never treat discovered links as ground truth in high-stakes domains.
     """
     source: str
     target: str
@@ -52,6 +56,15 @@ class CausalLink:
     strength: float = 1.0
     condition: Optional[Health] = None
     evidence: str = ""
+    origin: str = "asserted"   # "asserted" | "discovered"
+
+    @property
+    def is_asserted(self) -> bool:
+        return self.origin == "asserted"
+
+    @property
+    def is_discovered(self) -> bool:
+        return self.origin == "discovered"
 
     def to_dict(self) -> dict:
         d = {
@@ -59,6 +72,7 @@ class CausalLink:
             "cause_type": self.cause_type.value,
             "strength": round(self.strength, 4),
             "evidence": self.evidence,
+            "origin": self.origin,
         }
         if self.condition:
             d["condition"] = self.condition.value
@@ -72,11 +86,13 @@ class CausalLink:
             strength=d.get("strength", 1.0),
             condition=Health(d["condition"]) if "condition" in d else None,
             evidence=d.get("evidence", ""),
+            origin=d.get("origin", "asserted"),
         )
 
     def __repr__(self) -> str:
         cond = f" when {self.condition.value}" if self.condition else ""
-        return f"{self.source} --{self.cause_type.value}--> {self.target}{cond}"
+        tag = "[discovered]" if self.is_discovered else ""
+        return f"{self.source} --{self.cause_type.value}--> {self.target}{cond}{tag}"
 
 
 # -----------------------------------------------------------------------
@@ -123,6 +139,14 @@ class CausalGraph:
     def effects_of(self, component: str) -> list[CausalLink]:
         """All links where `component` is the source (what it affects)."""
         return [l for l in self.links if l.source == component]
+
+    def asserted_links(self) -> list[CausalLink]:
+        """Links that were manually declared (authoritative)."""
+        return [l for l in self.links if l.is_asserted]
+
+    def discovered_links(self) -> list[CausalLink]:
+        """Links auto-discovered via correlation (heuristic, not proven)."""
+        return [l for l in self.links if l.is_discovered]
 
     def upstream(self, component: str, depth: int = 10) -> list[str]:
         """All components upstream of `component` (transitive causes)."""

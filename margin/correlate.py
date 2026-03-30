@@ -85,6 +85,7 @@ class Correlation:
             cause_type=cause_type,
             strength=self.strength,
             evidence=f"auto-correlated: r={self.coefficient:.3f}, lag={self.lag}, n={self.n_samples}",
+            origin="discovered",  # lag-based causal direction is a heuristic, not proven
         )
 
     def to_dict(self) -> dict:

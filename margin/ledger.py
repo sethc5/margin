@@ -109,12 +109,20 @@ class Ledger:
     """
     Accumulates Records across a session.
     Provides aggregate stats and renders the intervention history.
+
+    max_records: optional bound on records kept. When set, old records
+                 are dropped (oldest first) on each append. Use this for
+                 long-running production loops to prevent unbounded growth.
+                 None (default) = unbounded, suitable for batch/replay use.
     """
     label: str = ""
     records: list[Record] = field(default_factory=list)
+    max_records: Optional[int] = None
 
     def append(self, record: Record) -> None:
         self.records.append(record)
+        if self.max_records is not None and len(self.records) > self.max_records:
+            self.records.pop(0)
 
     def __len__(self) -> int:
         return len(self.records)

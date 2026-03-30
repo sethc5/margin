@@ -194,6 +194,85 @@ See [Structure](#structure) at the end of this document for the full file map.
 
 ---
 
+## Known limitations and design tradeoffs
+
+These are honest gaps in the current design. They are not bugs — they are places
+where the abstraction is incomplete and users should be aware.
+
+### Sigma overloading
+
+Sigma is used as a health classifier input, a correction intensity source
+(`alpha_from_sigma`), and an improvement metric. These are different roles.
+A component at σ=-0.5 drifting slowly is not the same situation as one at
+σ=-0.5 after a sudden drop. Sigma loses trajectory information by the time
+policy sees it.
+
+**Mitigation**: use `full_step()` which composes sigma with drift classification.
+Do not use `alpha_from_sigma=True` without also checking drift direction. A
+correction sized by sigma alone on an ACCELERATING component will frequently be
+undersized.
+
+### RECOVERING is a function of correction input, not component state
+
+`Health.RECOVERING` means "would be ABLATED without the active correction." It is
+determined by the correction magnitude at the time of classification, not by the
+component's own trajectory. If the correction is withdrawn, the component snaps
+back to ABLATED with no state change.
+
+A component that has been RECOVERING for 50 steps with no improvement looks
+identical to one that just entered RECOVERING. Use `no_improvement()` from
+`policy/temporal.py` to detect this: it fires when corrections are running but
+mean improvement is ≤ 0.
+
+### Confidence is ordinal, but the bridge layer introduces cardinality
+
+`Confidence` is not a calibrated probability — `HIGH` does not mean "90%
+confident." However, `bridge.py`'s `observe()` function maps confidence tiers to
+specific numeric uncertainty fractions (HIGH → 5%, MODERATE → 15%, etc.). The
+round-trip `observe() → to_uncertain()` produces numbers that look precise but
+are derived from a discretization boundary. Downstream algebra propagates these
+as if they were measured. Do not interpret the resulting uncertainty intervals as
+calibrated probabilities.
+
+### Asserted vs. discovered causal links have different epistemic status
+
+`CausalGraph.add_degrades("A", "B")` and `auto_causal_graph(ledger)` both
+produce `CausalLink` objects, but with different reliability. Asserted links
+are authoritative declarations. Discovered links are correlational heuristics
+— lag-based causal direction is plausible but wrong when confounders, feedback
+loops, or coincident cycles exist.
+
+All links now carry an `origin` field: `"asserted"` or `"discovered"`. Use
+`graph.asserted_links()` and `graph.discovered_links()` to query them separately.
+Do not treat discovered DEGRADES links as ground truth in high-stakes domains.
+
+### No prospective cost model in policy
+
+Policy rules fire based on conditions. High-alpha corrections and low-alpha
+corrections differ only in intensity, not in represented risk or side effects.
+The `harmful()` ledger query is retrospective — it catches corrections that
+degraded something else after the fact. There is no mechanism to represent
+"this correction will likely affect component X as a side effect."
+
+For domains where corrections have real consequences, pair the policy layer with
+an Intent to constrain which corrections are acceptable given the goal.
+
+### Ledger grows without bound by default
+
+The `Ledger` is append-only with no default compaction. For long-running loops,
+use `Ledger(max_records=N)` to cap memory. The `window()` and `last_n()` methods
+create windowed views but do not prevent the underlying list from growing.
+
+### Monitor assumes aligned, synchronous updates
+
+`CorrelationTracker` requires all components present in each update (partial
+updates are silently skipped). In multi-sensor environments with different update
+rates, late arrivals, or components that go silent, the correlation window will
+be shorter than expected. Staleness checking exists on individual Observations
+via `is_fresh()` but is not integrated into `Monitor.update()`.
+
+---
+
 ## `confidence.py` — Confidence
 
 Ordinal tiers for how much an uncertainty interval overlaps a decision
