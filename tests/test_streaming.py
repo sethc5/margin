@@ -284,3 +284,124 @@ class TestMonitor:
         m = Monitor(self._parser())
         assert "Monitor" in repr(m)
         assert "3 components" in repr(m)
+
+
+# -----------------------------------------------------------------------
+# Monitor — feature flags
+# -----------------------------------------------------------------------
+
+class TestMonitorFeatures:
+    def _parser(self):
+        return Parser(
+            baselines={"cpu": 50.0, "mem": 70.0},
+            thresholds=Thresholds(intact=40.0, ablated=10.0),
+        )
+
+    def test_default_features_all_enabled(self):
+        m = Monitor(self._parser())
+        assert "drift" in m.features
+        assert "anomaly" in m.features
+        assert "correlation" in m.features
+
+    def test_features_health_only_skips_trackers(self):
+        m = Monitor(self._parser(), features={"health"})
+        assert len(m._drift_trackers) == 0
+        assert len(m._anomaly_trackers) == 0
+        assert m._correlation_tracker is None
+
+    def test_features_health_drift_no_anomaly(self):
+        m = Monitor(self._parser(), features={"health", "drift"})
+        assert len(m._drift_trackers) == 2
+        assert len(m._anomaly_trackers) == 0
+        assert m._correlation_tracker is None
+
+    def test_features_health_anomaly_no_drift(self):
+        m = Monitor(self._parser(), features={"health", "anomaly"})
+        assert len(m._drift_trackers) == 0
+        assert len(m._anomaly_trackers) == 2
+
+    def test_update_works_with_partial_features(self):
+        m = Monitor(self._parser(), features={"health", "drift"})
+        expr = m.update({"cpu": 48.0, "mem": 65.0})
+        assert expr is not None
+        assert m.step == 1
+
+    def test_features_is_frozenset(self):
+        m = Monitor(self._parser(), features={"health", "drift"})
+        assert isinstance(m.features, frozenset)
+
+    def test_status_omits_disabled_feature_keys(self):
+        m = Monitor(self._parser(), features={"health"})
+        for i in range(5):
+            m.update({"cpu": 50.0 - i, "mem": 70.0},
+                     now=t0 + timedelta(seconds=i * 60))
+        s = m.status()
+        # drift disabled → "drift" key absent
+        assert "drift" not in s
+        assert "anomaly" not in s
+
+    def test_repr_shows_features_when_partial(self):
+        m = Monitor(self._parser(), features={"health", "drift"})
+        r = repr(m)
+        assert "features" in r
+
+    def test_repr_no_features_label_when_all_enabled(self):
+        m = Monitor(self._parser())
+        r = repr(m)
+        assert "features" not in r
+
+    def test_reset_works_with_partial_features(self):
+        m = Monitor(self._parser(), features={"health", "drift"})
+        for i in range(5):
+            m.update({"cpu": 50.0 - i, "mem": 70.0})
+        m.reset()
+        assert m.step == 0
+
+
+# -----------------------------------------------------------------------
+# Monitor — reset_anomaly_reference
+# -----------------------------------------------------------------------
+
+class TestMonitorResetAnomalyReference:
+    def _parser(self):
+        return Parser(
+            baselines={"cpu": 50.0, "mem": 70.0},
+            thresholds=Thresholds(intact=40.0, ablated=10.0),
+        )
+
+    def test_reset_clears_all_reference_values(self):
+        m = Monitor(self._parser(), anomaly_min_reference=5)
+        for i in range(10):
+            m.update({"cpu": 50.0, "mem": 70.0},
+                     now=t0 + timedelta(seconds=i * 60))
+        assert m._anomaly_trackers["cpu"].n_values == 10
+        m.reset_anomaly_reference()
+        assert m._anomaly_trackers["cpu"].n_values == 0
+        assert m._anomaly_trackers["mem"].n_values == 0
+
+    def test_reset_specific_components(self):
+        m = Monitor(self._parser(), anomaly_min_reference=5)
+        for i in range(10):
+            m.update({"cpu": 50.0, "mem": 70.0},
+                     now=t0 + timedelta(seconds=i * 60))
+        m.reset_anomaly_reference(components=["cpu"])
+        assert m._anomaly_trackers["cpu"].n_values == 0
+        assert m._anomaly_trackers["mem"].n_values == 10
+
+    def test_reset_allows_fresh_reference(self):
+        m = Monitor(self._parser(), anomaly_min_reference=5)
+        # Build reference at baseline=50
+        for i in range(10):
+            m.update({"cpu": 50.0, "mem": 70.0},
+                     now=t0 + timedelta(seconds=i * 60))
+        m.reset_anomaly_reference()
+        # Feed new baseline at 100 — should warm up without contamination
+        for i in range(10):
+            m.update({"cpu": 100.0, "mem": 70.0},
+                     now=t0 + timedelta(seconds=(20 + i) * 60))
+        assert m._anomaly_trackers["cpu"].n_values == 10
+
+    def test_reset_noop_when_anomaly_disabled(self):
+        m = Monitor(self._parser(), features={"health", "drift"})
+        # Should not raise even though anomaly trackers don't exist
+        m.reset_anomaly_reference()

@@ -97,3 +97,48 @@ class TestClassifyEdgeCases:
     def test_negative_inf_lower_is_better(self):
         t = Thresholds(intact=0.02, ablated=0.10, higher_is_better=False)
         assert classify(float('-inf'), Confidence.HIGH, thresholds=t) == Health.INTACT
+
+
+class TestThresholdsLabels:
+    def test_label_for_returns_custom(self):
+        t = Thresholds(intact=80.0, ablated=30.0, labels={"ABLATED": "CRITICAL", "INTACT": "OK"})
+        assert t.label_for(Health.ABLATED) == "CRITICAL"
+        assert t.label_for(Health.INTACT) == "OK"
+
+    def test_label_for_fallback_to_enum(self):
+        t = Thresholds(intact=80.0, ablated=30.0, labels={"ABLATED": "CRITICAL"})
+        assert t.label_for(Health.DEGRADED) == "DEGRADED"
+
+    def test_no_labels_returns_enum_name(self):
+        t = Thresholds(intact=80.0, ablated=30.0)
+        assert t.label_for(Health.INTACT) == "INTACT"
+
+    def test_to_dict_includes_labels(self):
+        t = Thresholds(intact=80.0, ablated=30.0, labels={"ABLATED": "CRITICAL"})
+        d = t.to_dict()
+        assert d["labels"] == {"ABLATED": "CRITICAL"}
+        assert d["intact"] == 80.0
+        assert d["ablated"] == 30.0
+        assert d["higher_is_better"] is True
+        assert d["active_min"] == pytest.approx(0.05)
+
+    def test_to_dict_omits_labels_when_none(self):
+        t = Thresholds(intact=80.0, ablated=30.0)
+        d = t.to_dict()
+        assert "labels" not in d
+
+    def test_from_dict_roundtrip(self):
+        t = Thresholds(intact=0.01, ablated=0.10, higher_is_better=False,
+                       active_min=0.1, labels={"INTACT": "GOOD", "DEGRADED": "WARN"})
+        t2 = Thresholds.from_dict(t.to_dict())
+        assert t2.intact == t.intact
+        assert t2.ablated == t.ablated
+        assert t2.higher_is_better == t.higher_is_better
+        assert t2.active_min == t.active_min
+        assert t2.labels == t.labels
+
+    def test_from_dict_no_labels(self):
+        t = Thresholds.from_dict({"intact": 80.0, "ablated": 30.0})
+        assert t.labels is None
+        assert t.higher_is_better is True
+        assert t.active_min == pytest.approx(0.05)

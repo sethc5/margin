@@ -97,3 +97,82 @@ class TestParserFromCalibration:
     def test_empty_raises(self):
         with pytest.raises(ValueError):
             parser_from_calibration({})
+
+
+class TestCalibrateUseStd:
+    def test_higher_is_better_thresholds(self):
+        # mean=100, std=10 → intact=85 (100-1.5*10), ablated=70 (100-3*10)
+        r = calibrate([90.0, 100.0, 110.0], use_std=True)
+        assert r.thresholds.intact == pytest.approx(85.0, abs=0.1)
+        assert r.thresholds.ablated == pytest.approx(70.0, abs=0.1)
+        assert r.thresholds.higher_is_better is True
+
+    def test_lower_is_better_thresholds(self):
+        # mean=0.01, std=0.001 → intact=0.0115 (0.01+1.5*0.001), ablated=0.013 (0.01+3*0.001)
+        r = calibrate([0.009, 0.010, 0.011], use_std=True, higher_is_better=False)
+        assert r.thresholds.higher_is_better is False
+        assert r.thresholds.intact == pytest.approx(0.0115, abs=0.0001)
+        assert r.thresholds.ablated == pytest.approx(0.013, abs=0.0001)
+
+    def test_custom_multipliers(self):
+        # mean=100, std=10 → intact=100-2*10=80, ablated=100-4*10=60
+        r = calibrate([90.0, 100.0, 110.0], use_std=True,
+                      intact_std_multiplier=2.0, ablated_std_multiplier=4.0)
+        assert r.thresholds.intact == pytest.approx(80.0, abs=0.1)
+        assert r.thresholds.ablated == pytest.approx(60.0, abs=0.1)
+
+    def test_zero_variance_raises(self):
+        with pytest.raises(ValueError, match="zero-variance"):
+            calibrate([100.0, 100.0, 100.0], use_std=True)
+
+    def test_threads_through_calibrate_many(self):
+        from margin.calibrate import calibrate_many
+        _, thresholds = calibrate_many(
+            {"rps": [90.0, 100.0, 110.0]},
+            use_std=True,
+        )
+        # Should not raise; thresholds set from std mode
+        assert thresholds["rps"].intact < 100.0
+
+    def test_threads_through_parser_from_calibration(self):
+        p = parser_from_calibration(
+            {"rps": [90.0, 100.0, 110.0]},
+            use_std=True,
+        )
+        expr = p.parse({"rps": 60.0})
+        assert expr.health_of("rps") in (Health.ABLATED, Health.DEGRADED)
+
+
+class TestNeedsRecalibrationMany:
+    from margin.calibrate import needs_recalibration_many as _nrm
+
+    def test_stable_data_no_recalibration(self):
+        from margin.calibrate import needs_recalibration_many
+        cal = {"cpu": [50.0] * 20, "mem": [70.0] * 20}
+        recent = {"cpu": [50.5] * 10, "mem": [70.2] * 10}
+        flags = needs_recalibration_many(cal, recent)
+        assert flags["cpu"] is False
+        assert flags["mem"] is False
+
+    def test_mean_shift_triggers_recalibration(self):
+        from margin.calibrate import needs_recalibration_many
+        cal = {"cpu": [50.0] * 20}
+        recent = {"cpu": [100.0] * 10}  # >20% shift
+        flags = needs_recalibration_many(cal, recent)
+        assert flags["cpu"] is True
+
+    def test_returns_per_component_dict(self):
+        from margin.calibrate import needs_recalibration_many
+        cal = {"cpu": [50.0] * 20, "mem": [70.0] * 20, "err": [0.01] * 20}
+        recent = {"cpu": [50.0] * 10, "mem": [70.0] * 10, "err": [0.01] * 10}
+        flags = needs_recalibration_many(cal, recent)
+        assert set(flags.keys()) == {"cpu", "mem", "err"}
+        assert all(isinstance(v, bool) for v in flags.values())
+
+    def test_partial_subset_triggers(self):
+        from margin.calibrate import needs_recalibration_many
+        cal = {"cpu": [50.0] * 20, "mem": [70.0] * 20}
+        recent = {"cpu": [100.0] * 10, "mem": [70.1] * 10}
+        flags = needs_recalibration_many(cal, recent)
+        assert flags["cpu"] is True
+        assert flags["mem"] is False

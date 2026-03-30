@@ -136,3 +136,96 @@ class TestBacktestProposedBy:
         ledger = Ledger(records=[_rec(0, "x", Health.DEGRADED)])
         bt = policy.backtest(ledger)
         assert bt[0]["proposed_by"] == ""
+
+
+class TestMultiRule:
+    def _make_multi_policy(self):
+        from margin.policy.core import Policy, PolicyRule, Action
+        from margin.observation import Op
+        from margin.predicates import any_health, any_degraded
+        return Policy(
+            name="multi",
+            multi_rule=True,
+            rules=[
+                PolicyRule("log", any_degraded(),
+                           Action(target="*", op=Op.NOOP, alpha=0.0), priority=5),
+                PolicyRule("restore", any_health(Health.DEGRADED),
+                           Action(target="*", op=Op.RESTORE, alpha=0.5), priority=10),
+            ],
+        )
+
+    def test_multi_rule_all_matching_rules_fire(self):
+        policy = self._make_multi_policy()
+        dt = trace_evaluate(policy, _expr(_obs("x", Health.DEGRADED)))
+        # Both rules match DEGRADED
+        assert len(dt.results) == 2
+
+    def test_multi_rule_winner_is_highest_priority(self):
+        policy = self._make_multi_policy()
+        dt = trace_evaluate(policy, _expr(_obs("x", Health.DEGRADED)))
+        assert dt.winner == "restore"
+        assert dt.result is not None
+
+    def test_trace_always_has_all_matched_results(self):
+        # trace_evaluate always populates dt.results for all matches;
+        # multi_rule only gates StepResult.corrections in step()
+        from margin.policy.core import Policy, PolicyRule, Action
+        from margin.observation import Op
+        from margin.predicates import any_degraded
+        policy = Policy(
+            name="single",
+            multi_rule=False,
+            rules=[
+                PolicyRule("r1", any_degraded(), Action(target="*", op=Op.RESTORE, alpha=0.5), priority=10),
+                PolicyRule("r2", any_degraded(), Action(target="*", op=Op.NOOP), priority=5),
+            ],
+        )
+        dt = trace_evaluate(policy, _expr(_obs("x", Health.DEGRADED)))
+        # Both rules match — trace always records all; multi_rule only affects step()
+        assert len(dt.results) == 2
+        assert dt.winner == "r1"  # highest priority still wins
+
+    def test_multi_rule_to_dict_includes_multi_rule_flag(self):
+        policy = self._make_multi_policy()
+        d = policy.to_dict()
+        assert d["multi_rule"] is True
+
+    def test_multi_rule_default_is_false(self):
+        from margin.policy.core import Policy
+        policy = Policy(name="p", rules=[])
+        assert policy.multi_rule is False
+        assert policy.to_dict()["multi_rule"] is False
+
+
+class TestStepResultCorrections:
+    def test_step_corrections_populated_multi_rule(self):
+        from margin.loop import step
+        from margin.policy.core import Policy, PolicyRule, Action
+        from margin.observation import Op
+        from margin.predicates import any_degraded
+
+        policy = Policy(
+            name="multi",
+            multi_rule=True,
+            rules=[
+                PolicyRule("r1", any_degraded(), Action(target="*", op=Op.RESTORE, alpha=0.5), priority=10),
+                PolicyRule("r2", any_degraded(), Action(target="*", op=Op.NOOP), priority=5),
+            ],
+        )
+        result = step(_expr(_obs("x", Health.DEGRADED)), policy)
+        assert len(result.corrections) >= 1
+
+    def test_step_corrections_empty_single_rule(self):
+        from margin.loop import step
+        from margin.policy.core import Policy, PolicyRule, Action
+        from margin.observation import Op
+        from margin.predicates import any_degraded
+
+        policy = Policy(
+            name="single",
+            multi_rule=False,
+            rules=[PolicyRule("r", any_degraded(), Action(target="*", op=Op.RESTORE, alpha=0.5))],
+        )
+        result = step(_expr(_obs("x", Health.DEGRADED)), policy)
+        # multi_rule=False → corrections list is empty (only .correction populated)
+        assert result.corrections == []

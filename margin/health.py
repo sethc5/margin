@@ -63,6 +63,29 @@ class Thresholds:
             return self.labels.get(health.value, health.value)
         return health.value
 
+    def to_dict(self) -> dict:
+        """Serialize to a plain dict (labels included if set)."""
+        d: dict = {
+            "intact": self.intact,
+            "ablated": self.ablated,
+            "higher_is_better": self.higher_is_better,
+            "active_min": self.active_min,
+        }
+        if self.labels:
+            d["labels"] = dict(self.labels)
+        return d
+
+    @classmethod
+    def from_dict(cls, d: dict) -> 'Thresholds':
+        """Deserialize from a plain dict produced by to_dict()."""
+        return cls(
+            intact=d["intact"],
+            ablated=d["ablated"],
+            higher_is_better=d.get("higher_is_better", True),
+            active_min=d.get("active_min", 0.05),
+            labels=d.get("labels"),
+        )
+
     def __post_init__(self):
         if self.higher_is_better and self.ablated > self.intact:
             raise ValueError(

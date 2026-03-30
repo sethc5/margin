@@ -214,3 +214,53 @@ class TestCLI:
         assert result.returncode == 0
         assert "cpu" in result.stdout
         assert "INTACT" in result.stdout or "DEGRADED" in result.stdout
+
+
+class TestFeaturesRoundtrip:
+    def test_partial_features_saved_and_restored(self):
+        p = _parser()
+        m = Monitor(p, features={"health", "drift"})
+        for i in range(10):
+            m.update({"cpu": 50.0 - i, "mem": 70.0},
+                     now=t0 + timedelta(seconds=i * 60))
+
+        with tempfile.NamedTemporaryFile(suffix=".json", delete=False) as f:
+            save_monitor(m, f.name)
+            m2 = load_monitor(f.name, p)
+            Path(f.name).unlink()
+
+        assert m2.features == frozenset({"health", "drift"})
+        assert len(m2._drift_trackers) == 2
+        assert m2._correlation_tracker is None
+
+    def test_all_features_roundtrip(self):
+        p = _parser()
+        m = Monitor(p, features={"health", "drift", "anomaly", "correlation"})
+        for i in range(10):
+            m.update({"cpu": 50.0, "mem": 70.0},
+                     now=t0 + timedelta(seconds=i * 60))
+
+        with tempfile.NamedTemporaryFile(suffix=".json", delete=False) as f:
+            save_monitor(m, f.name)
+            m2 = load_monitor(f.name, p)
+            Path(f.name).unlink()
+
+        assert "drift" in m2.features
+        assert "anomaly" in m2.features
+        assert "correlation" in m2.features
+
+    def test_anomaly_min_reference_roundtrip(self):
+        p = _parser()
+        m = Monitor(p, anomaly_min_reference=25)
+        for i in range(10):
+            m.update({"cpu": 50.0, "mem": 70.0},
+                     now=t0 + timedelta(seconds=i * 60))
+
+        with tempfile.NamedTemporaryFile(suffix=".json", delete=False) as f:
+            save_monitor(m, f.name)
+            data = json.loads(Path(f.name).read_text())
+            m2 = load_monitor(f.name, p)
+            Path(f.name).unlink()
+
+        assert data["anomaly_min_reference"] == 25
+        assert m2._anomaly_trackers["cpu"]._min_reference == 25

@@ -9,6 +9,15 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [0.9.3] — 2026-03-30
+
+### Added
+
+- `Thresholds.to_dict()` / `Thresholds.from_dict()`: serialize and deserialize threshold configuration including `labels` — previously no serialization path existed for `Thresholds`
+- Tests for all features introduced in 0.9.1–0.9.2: `Monitor.features`, `Monitor.reset_anomaly_reference()`, `Policy.multi_rule`, `Thresholds.labels`, `calibrate(use_std=True)`, `needs_recalibration_many()`, persist round-trip for `features` and `anomaly_min_reference` (822 tests total, up from 775)
+
+---
+
 ## [0.9.2] — 2026-03-30
 
 ### Added

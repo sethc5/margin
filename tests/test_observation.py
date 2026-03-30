@@ -210,3 +210,61 @@ class TestParserPolarity:
         e = p.parse({"throughput": 95.0, "err": 0.08}, correction_magnitude=1.0, alpha=0.5)
         assert e.corrections[0].target == "err"
         assert e.corrections[0].op == Op.RESTORE
+
+
+class TestHealthLabel:
+    def test_to_atom_uses_health_label(self):
+        obs = Observation(
+            name="cpu", health=Health.ABLATED, value=10.0, baseline=100.0,
+            confidence=Confidence.HIGH, health_label="CRITICAL",
+        )
+        atom = obs.to_atom()
+        assert "CRITICAL" in atom
+        assert "ABLATED" not in atom
+
+    def test_to_atom_fallback_when_no_label(self):
+        obs = Observation(
+            name="cpu", health=Health.DEGRADED, value=60.0, baseline=100.0,
+            confidence=Confidence.HIGH,
+        )
+        atom = obs.to_atom()
+        assert "DEGRADED" in atom
+
+    def test_parser_sets_health_label(self):
+        p = Parser(
+            baselines={"cpu": 100.0},
+            thresholds=Thresholds(
+                intact=80.0, ablated=30.0,
+                labels={"ABLATED": "CRITICAL", "DEGRADED": "WARNING", "INTACT": "OK"},
+            ),
+        )
+        expr = p.parse({"cpu": 10.0})
+        obs = expr.observations[0]
+        assert obs.health_label == "CRITICAL"
+        assert "CRITICAL" in obs.to_atom()
+
+    def test_parser_label_for(self):
+        p = Parser(
+            baselines={"cpu": 100.0},
+            thresholds=Thresholds(intact=80.0, ablated=30.0, labels={"INTACT": "OK"}),
+        )
+        assert p.label_for("cpu", Health.INTACT) == "OK"
+        assert p.label_for("cpu", Health.DEGRADED) == "DEGRADED"
+
+    def test_health_label_to_dict_roundtrip(self):
+        obs = Observation(
+            name="mem", health=Health.DEGRADED, value=60.0, baseline=100.0,
+            confidence=Confidence.HIGH, health_label="WARNING",
+        )
+        d = obs.to_dict()
+        assert d["health_label"] == "WARNING"
+        obs2 = Observation.from_dict(d)
+        assert obs2.health_label == "WARNING"
+
+    def test_health_label_none_not_in_dict(self):
+        obs = Observation(
+            name="mem", health=Health.INTACT, value=95.0, baseline=100.0,
+            confidence=Confidence.HIGH,
+        )
+        d = obs.to_dict()
+        assert "health_label" not in d

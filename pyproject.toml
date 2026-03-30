@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "margin"
-version = "0.9.2"
+version = "0.9.3"
 description = "Typed health classification, uncertainty algebra, and correction auditing for any system that measures things and needs to explain what happened."
 readme = "README.md"
 license = {text = "MIT"}
