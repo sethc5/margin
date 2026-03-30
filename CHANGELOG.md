@@ -9,6 +9,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [0.9.13] — 2026-03-30
+
+### Fixed
+
+- `Fingerprint.values()`: restores standard dict-protocol method (`values_dict()` was a non-standard rename that broke any caller iterating `fp.values()` — a regression from the plain-dict return of prior versions)
+
+---
+
 ## [0.9.12] — 2026-03-30
 
 ### Added
