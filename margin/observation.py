@@ -60,6 +60,7 @@ class Observation:
     higher_is_better: bool = True
     provenance: list[str] = field(default_factory=list)
     measured_at: Optional[datetime] = None
+    health_label: Optional[str] = None
 
     @property
     def sigma(self) -> float:
@@ -91,10 +92,11 @@ class Observation:
 
     def to_atom(self) -> str:
         """Compact string: NAME:HEALTH(±σ)"""
+        display = self.health_label or self.health.value
         if self.health == Health.OOD:
-            return f"{self.name}:{self.health.value}"
+            return f"{self.name}:{display}"
         sign = "+" if self.sigma >= 0 else ""
-        return f"{self.name}:{self.health.value}({sign}{self.sigma:.2f}σ)"
+        return f"{self.name}:{display}({sign}{self.sigma:.2f}σ)"
 
     def to_dict(self) -> dict:
         d = {
@@ -107,6 +109,8 @@ class Observation:
             "higher_is_better": self.higher_is_better,
             "provenance": self.provenance,
         }
+        if self.health_label is not None:
+            d["health_label"] = self.health_label
         if self.measured_at is not None:
             d["measured_at"] = self.measured_at.isoformat()
         return d
@@ -125,6 +129,7 @@ class Observation:
             higher_is_better=d.get("higher_is_better", True),
             provenance=d.get("provenance", []),
             measured_at=measured_at,
+            health_label=d.get("health_label"),
         )
 
 
@@ -311,6 +316,10 @@ class Parser:
     def _thresholds_for(self, name: str) -> Thresholds:
         return self.component_thresholds.get(name, self.thresholds)
 
+    def label_for(self, component: str, health: Health) -> str:
+        """Return the display label for a component's health state."""
+        return self._thresholds_for(component).label_for(health)
+
     def parse(
         self,
         values: dict[str, float],
@@ -343,6 +352,7 @@ class Parser:
                 name=name, health=h, value=val, baseline=baseline,
                 confidence=conf, higher_is_better=ct.higher_is_better,
                 provenance=list(provenance),
+                health_label=ct.label_for(h) if ct.labels else None,
             ))
 
         corrections = []

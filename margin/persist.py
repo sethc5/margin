@@ -33,13 +33,14 @@ def save_monitor(monitor: Monitor, path: str) -> None:
         "anomaly_window": monitor.anomaly_window,
         "correlation_window": monitor.correlation_window,
         "anomaly_min_reference": _anomaly_min_ref,
+        "features": sorted(monitor.features),
         "drift": {},
         "anomaly": {},
         "correlation": {
             "components": monitor._correlation_tracker.components,
             "series": {c: list(d) for c, d in monitor._correlation_tracker._series.items()},
             "n_updates": monitor._correlation_tracker.n_updates,
-        },
+        } if monitor._correlation_tracker is not None else None,
     }
 
     for name, dt in monitor._drift_trackers.items():
@@ -71,12 +72,15 @@ def load_monitor(path: str, parser: Parser, **kwargs) -> Monitor:
     anomaly_window = data.get("anomaly_window", kwargs.pop("anomaly_window", None))
     correlation_window = data.get("correlation_window", kwargs.pop("correlation_window", None))
     anomaly_min_reference = data.get("anomaly_min_reference", kwargs.pop("anomaly_min_reference", 10))
+    features_data = data.get("features", None)
+    features = set(features_data) if features_data is not None else None
     monitor = Monitor(
         parser, window=window,
         drift_window=drift_window,
         anomaly_window=anomaly_window,
         correlation_window=correlation_window,
         anomaly_min_reference=anomaly_min_reference,
+        features=features,
         **kwargs,
     )
     monitor._step = data.get("step", 0)
@@ -101,12 +105,13 @@ def load_monitor(path: str, parser: Parser, **kwargs) -> Monitor:
                 tracker._values.append(v)
 
     # Restore correlation series
-    corr_data = data.get("correlation", {})
-    for c in monitor._correlation_tracker.components:
-        series = corr_data.get("series", {}).get(c, [])
-        for v in series:
-            monitor._correlation_tracker._series[c].append(v)
-    monitor._correlation_tracker._n_updates = corr_data.get("n_updates", 0)
+    corr_data = data.get("correlation")
+    if corr_data is not None and monitor._correlation_tracker is not None:
+        for c in monitor._correlation_tracker.components:
+            series = corr_data.get("series", {}).get(c, [])
+            for v in series:
+                monitor._correlation_tracker._series[c].append(v)
+        monitor._correlation_tracker._n_updates = corr_data.get("n_updates", 0)
 
     return monitor
 

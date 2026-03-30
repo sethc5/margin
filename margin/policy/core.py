@@ -258,6 +258,7 @@ class Policy:
     rules: list[PolicyRule] = field(default_factory=list)
     default_constraint: Optional[Constraint] = None
     default_escalation: Optional[Escalation] = None
+    multi_rule: bool = False
 
     def evaluate(self, expr: Expression, ledger: Optional[Ledger] = None) -> list[Union[Correction, Escalation]]:
         matching = sorted([r for r in self.rules if r.matches(expr)],
@@ -305,7 +306,7 @@ class Policy:
         return results
 
     def to_dict(self) -> dict:
-        d: dict = {"name": self.name, "rules": [r.to_dict() for r in self.rules]}
+        d: dict = {"name": self.name, "rules": [r.to_dict() for r in self.rules], "multi_rule": self.multi_rule}
         if self.default_constraint:
             d["default_constraint"] = self.default_constraint.to_dict()
         if self.default_escalation:
@@ -324,6 +325,7 @@ class Policy:
             name=d["name"], rules=rules,
             default_constraint=Constraint.from_dict(d["default_constraint"]) if "default_constraint" in d else None,
             default_escalation=Escalation.from_dict(d["default_escalation"]) if "default_escalation" in d else None,
+            multi_rule=d.get("multi_rule", False),
         )
 
     def __repr__(self) -> str:

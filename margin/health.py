@@ -46,6 +46,7 @@ class Thresholds:
                       (throughput, signal), False means lower values are
                       healthier (error rate, latency)
     active_min:       minimum correction magnitude to count as "active"
+    labels:           optional display labels keyed by Health.value strings
 
     For higher_is_better=True:  intact >= ablated, value >= intact → INTACT
     For higher_is_better=False: intact <= ablated, value <= intact → INTACT
@@ -54,6 +55,13 @@ class Thresholds:
     ablated: float
     higher_is_better: bool = True
     active_min: float = 0.05
+    labels: Optional[dict[str, str]] = None
+
+    def label_for(self, health: 'Health') -> str:
+        """Return the display label for a health state, or the state name if no label set."""
+        if self.labels:
+            return self.labels.get(health.value, health.value)
+        return health.value
 
     def __post_init__(self):
         if self.higher_is_better and self.ablated > self.intact:

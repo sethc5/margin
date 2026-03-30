@@ -59,6 +59,7 @@ class DecisionTrace:
     winner: Optional[str] = None
     result: Optional[Union[Correction, Escalation]] = None
     causal_context: Optional[dict] = None  # from causal.explain_all() if available
+    results: list = field(default_factory=list)  # all fired corrections/escalations (multi_rule)
 
     @property
     def rules_considered(self) -> int:
@@ -111,6 +112,11 @@ class DecisionTrace:
             d["result_type"] = None
         if self.causal_context:
             d["causal_context"] = self.causal_context
+        if self.results:
+            d["results"] = [
+                r.to_dict() if hasattr(r, 'to_dict') else str(r)
+                for r in self.results
+            ]
         return d
 
     def __repr__(self) -> str:
@@ -132,11 +138,11 @@ def trace_evaluate(
     attached to the trace for auditability.
     """
     dt = DecisionTrace(expression=expr, causal_context=causal_context)
-    winner_result = None
-    winner_name = None
 
     # Evaluate all rules in priority order
     sorted_rules = sorted(policy.rules, key=lambda r: r.priority, reverse=True)
+
+    all_results = []
 
     for rule in sorted_rules:
         matched = rule.matches(expr)
@@ -156,26 +162,24 @@ def trace_evaluate(
                     ev.outcome = "escalation"
                     ev.reason = f"{result.level.value}: {result.reason}"
                 ev.result = result
-
-                if winner_result is None:
-                    winner_result = result
-                    winner_name = rule.name
+                all_results.append((rule.name, result))
             else:
                 ev.outcome = "suppressed"
                 ev.reason = "evaluate returned None"
 
         dt.evaluations.append(ev)
 
-    if winner_result is None and policy.default_escalation:
-        winner_result = Escalation(
+    if not all_results and policy.default_escalation:
+        default_esc = Escalation(
             policy.default_escalation.level,
             policy.default_escalation.reason,
             "default",
         )
-        winner_name = "default"
+        all_results.append(("default", default_esc))
 
-    dt.winner = winner_name
-    dt.result = winner_result
+    dt.results = [r for _, r in all_results]
+    dt.winner = all_results[0][0] if all_results else None
+    dt.result = all_results[0][1] if all_results else None
     return dt
 
 

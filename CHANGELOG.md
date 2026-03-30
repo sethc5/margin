@@ -9,6 +9,16 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [0.9.2] — 2026-03-30
+
+### Added
+
+- `Monitor(features={"health","drift"})`: opt-in feature flags — skip unused trackers (drift, anomaly, correlation); saves compute and suppresses spurious "anomaly reference" warnings when anomaly tracking is off; `"health"` always implied; `None` (default) enables all three; `features` saved/restored by `save_monitor`/`load_monitor`
+- `Policy(multi_rule=True)`: allow all matching rules to fire in one step — `DecisionTrace.results` contains every fired `Correction`/`Escalation`; `StepResult.corrections` exposes the full list; backward-compatible (`decision.result` and `step_result.correction` still hold the first)
+- `Thresholds(labels={"ABLATED":"CRITICAL","DEGRADED":"WARNING","INTACT":"OK"})`: per-health display labels — flow through `Parser.parse()` into `Observation.health_label`; `to_atom()` uses the label instead of the enum name; `Parser.label_for(component, health)` convenience accessor
+
+---
+
 ## [0.9.1] — 2026-03-30
 
 ### Added

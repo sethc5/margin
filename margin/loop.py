@@ -45,6 +45,7 @@ class StepResult:
     correction: Optional[Correction] = None
     escalation: Optional[Escalation] = None
     contract: Optional[ContractResult] = None
+    corrections: list = field(default_factory=list)  # all fired corrections (multi_rule)
 
     @property
     def acted(self) -> bool:
@@ -74,6 +75,8 @@ class StepResult:
             d["decision"] = self.decision.to_dict()
         if self.correction:
             d["correction"] = self.correction.to_dict()
+        if self.corrections:
+            d["corrections"] = [c.to_dict() for c in self.corrections]
         if self.escalation:
             d["escalation"] = self.escalation.to_dict()
         if self.contract:
@@ -140,6 +143,11 @@ def step(
     elif isinstance(decision.result, Escalation):
         escalation = decision.result
 
+    # Collect all corrections for multi_rule mode
+    all_corrections = []
+    if policy.multi_rule:
+        all_corrections = [r for r in decision.results if isinstance(r, Correction)]
+
     # 3. Evaluate contract
     contract_result = None
     if contract:
@@ -152,6 +160,7 @@ def step(
         correction=correction,
         escalation=escalation,
         contract=contract_result,
+        corrections=all_corrections,
     )
 
 

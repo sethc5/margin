@@ -364,6 +364,7 @@ class Monitor:
         window_config: Optional[WindowConfig] = None,
         min_correlation: float = 0.7,
         anomaly_min_reference: int = 10,
+        features: Optional[set] = None,
     ):
         self.parser = parser
         self.window = window
@@ -374,7 +375,10 @@ class Monitor:
         self.anomaly_window = cfg.anomaly or anomaly_window or window
         self.correlation_window = cfg.correlation or correlation_window or window
 
-        if anomaly_min_reference > self.anomaly_window:
+        # Resolve feature flags: None means all enabled (backward compatible)
+        self.features = frozenset(features) if features is not None else frozenset({"drift", "anomaly", "correlation"})
+
+        if "anomaly" in self.features and anomaly_min_reference > self.anomaly_window:
             warnings.warn(
                 f"Monitor: anomaly_min_reference={anomaly_min_reference} > "
                 f"anomaly_window={self.anomaly_window} — AnomalyTrackers will never "
@@ -386,22 +390,28 @@ class Monitor:
         self._expression: Optional[Expression] = None
         self._step = 0
 
-        # Create per-component trackers
+        # Create per-component trackers for enabled features only
         self._drift_trackers: dict[str, DriftTracker] = {}
         self._anomaly_trackers: dict[str, AnomalyTracker] = {}
 
-        for name in parser.baselines:
-            self._drift_trackers[name] = DriftTracker(name, window=self.drift_window)
-            self._anomaly_trackers[name] = AnomalyTracker(
-                name, window=self.anomaly_window, min_reference=anomaly_min_reference,
-            )
+        if "drift" in self.features:
+            for name in parser.baselines:
+                self._drift_trackers[name] = DriftTracker(name, window=self.drift_window)
 
-        # Correlation tracker across all components
-        self._correlation_tracker = CorrelationTracker(
-            list(parser.baselines.keys()),
-            window=self.correlation_window,
-            min_correlation=min_correlation,
-        )
+        if "anomaly" in self.features:
+            for name in parser.baselines:
+                self._anomaly_trackers[name] = AnomalyTracker(
+                    name, window=self.anomaly_window, min_reference=anomaly_min_reference,
+                )
+
+        if "correlation" in self.features:
+            self._correlation_tracker: Optional[CorrelationTracker] = CorrelationTracker(
+                list(parser.baselines.keys()),
+                window=self.correlation_window,
+                min_correlation=min_correlation,
+            )
+        else:
+            self._correlation_tracker = None
 
     def update(
         self,
@@ -440,7 +450,8 @@ class Monitor:
                 self._anomaly_trackers[name].update(obs.value)
 
         # Correlation
-        self._correlation_tracker.update(values)
+        if self._correlation_tracker is not None:
+            self._correlation_tracker.update(values)
 
         return self._expression
 
@@ -458,6 +469,8 @@ class Monitor:
 
     @property
     def correlations(self) -> Optional[CorrelationMatrix]:
+        if self._correlation_tracker is None:
+            return None
         return self._correlation_tracker.matrix
 
     @property
@@ -469,16 +482,18 @@ class Monitor:
         d: dict = {
             "step": self._step,
             "expression": self._expression.to_dict() if self._expression else None,
-            "drift": {},
-            "anomaly": {},
         }
-        for name, tracker in self._drift_trackers.items():
-            if tracker.classification:
-                d["drift"][name] = tracker.classification.to_dict()
-        for name, tracker in self._anomaly_trackers.items():
-            if tracker.classification:
-                d["anomaly"][name] = tracker.classification.to_dict()
-        if self._correlation_tracker.matrix:
+        if "drift" in self.features:
+            d["drift"] = {}
+            for name, tracker in self._drift_trackers.items():
+                if tracker.classification:
+                    d["drift"][name] = tracker.classification.to_dict()
+        if "anomaly" in self.features:
+            d["anomaly"] = {}
+            for name, tracker in self._anomaly_trackers.items():
+                if tracker.classification:
+                    d["anomaly"][name] = tracker.classification.to_dict()
+        if self._correlation_tracker is not None and self._correlation_tracker.matrix:
             d["correlations"] = self._correlation_tracker.matrix.to_dict()
         return d
 
@@ -506,7 +521,8 @@ class Monitor:
             t.reset()
         for t in self._anomaly_trackers.values():
             t.reset()
-        self._correlation_tracker.reset()
+        if self._correlation_tracker is not None:
+            self._correlation_tracker.reset()
 
     def __repr__(self) -> str:
         windows_uniform = (self.drift_window == self.anomaly_window == self.correlation_window)
@@ -514,4 +530,9 @@ class Monitor:
             w = f"window={self.drift_window}"
         else:
             w = f"drift={self.drift_window}, anomaly={self.anomaly_window}, corr={self.correlation_window}"
-        return f"Monitor(step={self._step}, {len(self._drift_trackers)} components, {w})"
+        all_features = frozenset({"drift", "anomaly", "correlation"})
+        if self.features == all_features:
+            feat = ""
+        else:
+            feat = f", features={{{', '.join(sorted(self.features))}}}"
+        return f"Monitor(step={self._step}, {len(self._drift_trackers)} components, {w}{feat})"
