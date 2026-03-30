@@ -229,8 +229,8 @@ def layer2_intent(deadline_seconds: float = 300.0) -> Intent:
     """
     return (Intent(goal="Layer 2: temporal depth operational", deadline_seconds=deadline_seconds)
             .require("converging", min_value=0.0, min_health=Health.DEGRADED)
-            .require("drifting", min_value=0.3, min_health=Health.DEGRADED)
-            .require("stalling", min_value=0.3, min_health=Health.DEGRADED)
+            .require("drifting", min_health=Health.DEGRADED)   # lower-is-better; health gate handles polarity
+            .require("stalling", min_health=Health.DEGRADED)   # lower-is-better; health gate handles polarity
             .require("accelerating", min_health=Health.DEGRADED, critical=False))
 
 

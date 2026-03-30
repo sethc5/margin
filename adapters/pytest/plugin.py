@@ -91,7 +91,8 @@ def _build_suite_metrics() -> dict[str, float]:
             import coverage
             cov = coverage.Coverage()
             cov.load()
-            total = cov.report(file=open("/dev/null", "w"))
+            import io
+            total = cov.report(file=io.StringIO())
             metrics["coverage"] = total / 100.0
     except Exception:
         pass  # no pytest-cov or no .coverage file — skip
