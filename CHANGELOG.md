@@ -9,6 +9,19 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [0.9.12] — 2026-03-30
+
+### Added
+
+- `Fingerprint` class (`margin.fingerprint`): noise-resistant session statistics wrapper returned by `Monitor.fingerprint()`; dict-compatible (`fp["component"]["mean"]` still works); adds `fp.robust_target(component, method="median")` (median of raw drift-window values — more robust than mean when std is high), `fp.percentile(component, p)`, `fp.n(component)`, and `fp.to_dict()` / `from_dict()` round-trip; `values` dict stores raw float lists from the drift window
+- `Controller` class (`margin.controller`): adaptive scalar P-controller for Layer 2/3 feedback loops; `Controller(strategy="proportional_asymmetric", kp=0.3, target=0.5, backoff=0.90)`; `ctrl.step(alpha, observations, alpha_min, alpha_max)` → `(alpha_next, reason)` — accepts a list of `Observation` objects (metric = mean sigma, polarity-corrected) or a scalar float; `proportional_asymmetric` strategy: `alpha += kp * metric` when `metric ≥ 0`, `alpha *= backoff` when `metric < 0`
+- `Controller.from_fingerprint(fp, component, kp, cold_target, strategy)`: warm-start factory that condenses ~30 lines of per-session calibration boilerplate into one call; uses `fp.robust_target(component)` (median) when `n ≥ 10`, falls back to `cold_target` for cold sessions; accepts both `Fingerprint` objects and plain dicts
+- `Monitor.fingerprint()` now returns `Fingerprint` (was `dict[str, dict]`); fully backward-compatible — dict indexing unchanged; raw values stored for median/percentile queries
+- `Monitor.suggest_target(component)` → `{target: float, confidence: str}`: suggests a conservative calibration target as `max(0, mean - 0.5 * std)`; confidence is `HIGH` (n≥30), `MODERATE` (n≥10), `LOW` (n<10), or `NONE` (component unknown / no data)
+- `Monitor.tail(n=10)` → `list[Observation]`: returns the `n` most recent observations across all components from the drift-tracker windows, sorted by `measured_at`
+
+---
+
 ## [0.9.11] — 2026-03-30
 
 ### Added

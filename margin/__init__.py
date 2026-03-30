@@ -99,6 +99,10 @@ from .causal import (
     CauseExplanation, Explanation,
 )
 
+# Fingerprint + Controller
+from .fingerprint import Fingerprint
+from .controller import Controller
+
 # Streaming
 from .streaming import DriftTracker, AnomalyTracker, CorrelationTracker, Monitor, WindowConfig
 
@@ -176,6 +180,8 @@ __all__ = [
     "CauseExplanation", "Explanation",
     # Intent
     "Feasibility", "Requirement", "RiskFactor", "IntentResult", "Intent",
+    # Fingerprint + Controller
+    "Fingerprint", "Controller",
     # Streaming
     "DriftTracker", "AnomalyTracker", "CorrelationTracker", "Monitor", "WindowConfig",
     # Config

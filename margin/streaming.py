@@ -64,6 +64,7 @@ from .confidence import Confidence
 from .health import Health, Thresholds, classify
 from .observation import Observation, Expression
 from .provenance import ProvenanceGraph
+from .fingerprint import Fingerprint
 from .drift import (
     DriftState, DriftDirection, DriftClassification,
     classify_drift,
@@ -565,43 +566,100 @@ class Monitor:
             d["provenance_nodes"] = len(self.provenance_graph.nodes)
         return d
 
-    def fingerprint(self) -> dict[str, dict]:
+    def fingerprint(self) -> Fingerprint:
         """
         Session statistics for each component from the current drift window.
 
-        Returns ``{name: {mean, std, n, trend}}`` where:
+        Returns a :class:`~margin.fingerprint.Fingerprint` with:
 
-        - ``mean``  — empirical mean of values in the window
-        - ``std``   — sample standard deviation (0.0 if n < 2)
-        - ``n``     — number of observations currently in the window
-        - ``trend`` — DriftState value string, or ``"UNKNOWN"`` if < min_samples
+        - ``fp[name]["mean"]``  — empirical mean
+        - ``fp[name]["std"]``   — sample standard deviation (0.0 if n < 2)
+        - ``fp[name]["n"]``     — observations in the window
+        - ``fp[name]["trend"]`` — DriftState value string, or ``"UNKNOWN"``
+        - ``fp.robust_target(name)`` — median (noise-resistant target)
+        - ``fp.percentile(name, p)`` — p-th percentile of observed values
 
-        Typical use: dispositional calibration before a session boundary.
+        Typical use: dispositional calibration before a session boundary::
 
             fp = monitor.fingerprint()
             new_parser = monitor.parser.with_baselines(fp)
+            ctrl = Controller.from_fingerprint(fp, "recovery_ratio", kp=0.3, cold_target=0.5)
         """
-        result: dict[str, dict] = {}
+        stats: dict[str, dict] = {}
+        raw_values: dict[str, list[float]] = {}
         for name, tracker in self._drift_trackers.items():
             obs = list(tracker._observations)
             n = len(obs)
             if n == 0:
-                result[name] = {
+                stats[name] = {
                     "mean": self.parser.baselines.get(name, 0.0),
                     "std": 0.0, "n": 0, "trend": "UNKNOWN",
                 }
+                raw_values[name] = []
                 continue
             values = [o.value for o in obs]
             mean = sum(values) / n
             std = (sum((v - mean) ** 2 for v in values) / (n - 1)) ** 0.5 if n >= 2 else 0.0
             dc = tracker.classification
-            result[name] = {
+            stats[name] = {
                 "mean": mean,
                 "std": std,
                 "n": n,
                 "trend": dc.state.value if dc is not None else "UNKNOWN",
             }
-        return result
+            raw_values[name] = values
+        return Fingerprint(stats=stats, values=raw_values)
+
+    def suggest_target(self, component: str) -> dict:
+        """
+        Suggest a calibration target based on observed values.
+
+        Returns ``{target: float, confidence: str}`` where:
+
+        - ``target = max(0, mean - 0.5 * std)`` — conservative achievable target
+        - ``confidence``: ``"HIGH"`` (n≥30), ``"MODERATE"`` (n≥10), ``"LOW"`` (n<10)
+
+        The formula errs toward under-promising: if mean=0.7, std=0.4 the
+        suggestion is 0.5, not 0.7 — reflecting that the metric can be noisy.
+        """
+        tracker = self._drift_trackers.get(component)
+        if tracker is None:
+            return {"target": 0.0, "confidence": "NONE"}
+        obs = list(tracker._observations)
+        n = len(obs)
+        if n == 0:
+            return {"target": 0.0, "confidence": "NONE"}
+        values = [o.value for o in obs]
+        mean = sum(values) / n
+        std = (sum((v - mean) ** 2 for v in values) / (n - 1)) ** 0.5 if n >= 2 else 0.0
+        target = max(0.0, mean - 0.5 * std)
+        if n >= 30:
+            confidence = "HIGH"
+        elif n >= 10:
+            confidence = "MODERATE"
+        else:
+            confidence = "LOW"
+        return {"target": target, "confidence": confidence}
+
+    def tail(self, n: int = 10) -> list[Observation]:
+        """
+        Return the ``n`` most recent observations across all components.
+
+        Observations are drawn from the drift-tracker windows (which store
+        the same observations that were fed to drift classification) and
+        sorted by ``measured_at``.  Components with disabled drift tracking
+        are not included.
+
+        Typical use: inspect recent history before a control decision::
+
+            recent = monitor.tail(20)
+            means_sigma = sum(o.sigma for o in recent) / len(recent)
+        """
+        all_obs: list[Observation] = []
+        for tracker in self._drift_trackers.values():
+            all_obs.extend(list(tracker._observations)[-n:])
+        all_obs.sort(key=lambda o: o.measured_at or datetime.min)
+        return all_obs[-n:]
 
     def reset_anomaly_reference(self, components: Optional[list[str]] = None) -> None:
         """
