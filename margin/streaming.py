@@ -16,6 +16,23 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Optional
 
+
+@dataclass
+class WindowConfig:
+    """
+    Per-concern window sizes for Monitor.
+
+    drift:        window for DriftTracker (how many steps to classify trajectory)
+    anomaly:      window for AnomalyTracker (reference window for outlier detection)
+    correlation:  window for CorrelationTracker (how many steps for pairwise correlation)
+
+    All default to None, meaning "inherit the Monitor's base `window` parameter."
+    Rule of thumb: anomaly ≈ 4× drift, correlation ≈ 10× drift.
+    """
+    drift: Optional[int] = None
+    anomaly: Optional[int] = None
+    correlation: Optional[int] = None
+
 from .confidence import Confidence
 from .health import Health, Thresholds, classify
 from .observation import Observation, Expression
@@ -340,11 +357,22 @@ class Monitor:
         self,
         parser,
         window: int = 100,
+        drift_window: Optional[int] = None,
+        anomaly_window: Optional[int] = None,
+        correlation_window: Optional[int] = None,
+        window_config: Optional[WindowConfig] = None,
         min_correlation: float = 0.7,
         anomaly_min_reference: int = 10,
     ):
         self.parser = parser
         self.window = window
+
+        # Resolve per-tracker windows: window_config > named params > base window
+        cfg = window_config or WindowConfig()
+        self.drift_window = cfg.drift or drift_window or window
+        self.anomaly_window = cfg.anomaly or anomaly_window or window
+        self.correlation_window = cfg.correlation or correlation_window or window
+
         self._expression: Optional[Expression] = None
         self._step = 0
 
@@ -352,17 +380,16 @@ class Monitor:
         self._drift_trackers: dict[str, DriftTracker] = {}
         self._anomaly_trackers: dict[str, AnomalyTracker] = {}
 
-        for name, baseline in parser.baselines.items():
-            thresholds = parser._thresholds_for(name)
-            self._drift_trackers[name] = DriftTracker(name, window=window)
+        for name in parser.baselines:
+            self._drift_trackers[name] = DriftTracker(name, window=self.drift_window)
             self._anomaly_trackers[name] = AnomalyTracker(
-                name, window=window, min_reference=anomaly_min_reference,
+                name, window=self.anomaly_window, min_reference=anomaly_min_reference,
             )
 
         # Correlation tracker across all components
         self._correlation_tracker = CorrelationTracker(
             list(parser.baselines.keys()),
-            window=window,
+            window=self.correlation_window,
             min_correlation=min_correlation,
         )
 
@@ -455,4 +482,9 @@ class Monitor:
         self._correlation_tracker.reset()
 
     def __repr__(self) -> str:
-        return f"Monitor(step={self._step}, {len(self._drift_trackers)} components)"
+        windows_uniform = (self.drift_window == self.anomaly_window == self.correlation_window)
+        if windows_uniform:
+            w = f"window={self.drift_window}"
+        else:
+            w = f"drift={self.drift_window}, anomaly={self.anomaly_window}, corr={self.correlation_window}"
+        return f"Monitor(step={self._step}, {len(self._drift_trackers)} components, {w})"

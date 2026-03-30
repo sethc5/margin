@@ -29,7 +29,10 @@ from .ledger import Record, Ledger
 
 # Observability
 from .bridge import observe, observe_many, delta, to_uncertain
-from .calibrate import CalibrationResult, calibrate, calibrate_many, parser_from_calibration
+from .calibrate import (
+    CalibrationResult, calibrate, calibrate_many,
+    parser_from_calibration, recalibrate_parser, needs_recalibration,
+)
 from .composite import CompositeObservation, AggregateStrategy
 from .diff import ComponentChange, Diff, diff
 from .events import EventBus
@@ -95,7 +98,7 @@ from .causal import (
 )
 
 # Streaming
-from .streaming import DriftTracker, AnomalyTracker, CorrelationTracker, Monitor
+from .streaming import DriftTracker, AnomalyTracker, CorrelationTracker, Monitor, WindowConfig
 
 # Config
 from .config import from_config, load_config

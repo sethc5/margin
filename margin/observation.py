@@ -10,6 +10,7 @@ Expression:   composed snapshot — all observations + corrections at one moment
 from __future__ import annotations
 
 import json
+import warnings
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
@@ -161,8 +162,8 @@ class Correction:
         return {
             "target": self.target,
             "op": self.op.value,
-            "alpha": round(self.alpha, 4),
-            "magnitude": round(self.magnitude, 4),
+            "alpha": self.alpha,
+            "magnitude": self.magnitude,
             "triggered_by": self.triggered_by,
             "provenance": self.provenance,
         }
@@ -197,6 +198,18 @@ class Expression:
     confidence: Confidence = Confidence.MODERATE
     label: str = ""
     step: Optional[int] = None
+
+    def __post_init__(self) -> None:
+        if self.observations:
+            weakest = min(o.confidence for o in self.observations)
+            if self.confidence > weakest:
+                warnings.warn(
+                    f"Expression.confidence ({self.confidence.value}) exceeds the weakest "
+                    f"observation confidence ({weakest.value}). This overclaims certainty "
+                    "and will cause min_confidence policy gates to fire incorrectly. "
+                    "Use Parser.parse() to construct Expressions with correct net confidence.",
+                    stacklevel=2,
+                )
 
     def health_of(self, name: str) -> Optional[Health]:
         for o in self.observations:

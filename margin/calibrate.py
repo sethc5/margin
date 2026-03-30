@@ -3,6 +3,9 @@ Threshold derivation from historical data.
 
 Takes a set of "known healthy" measurements and derives baselines and
 thresholds automatically.
+
+Also provides runtime recalibration: detect when a baseline has drifted
+and construct a replacement Parser with updated baselines/thresholds.
 """
 
 from __future__ import annotations
@@ -149,6 +152,138 @@ def calibrate_many(
         thresholds[name] = result.thresholds
 
     return baselines, thresholds
+
+
+def needs_recalibration(
+    calibration_samples: list[float],
+    recent_samples: list[float],
+    mean_shift_threshold: float = 0.2,
+    std_ratio_high: float = 2.0,
+    std_ratio_low: float = 0.5,
+    min_recent: int = 5,
+) -> bool:
+    """
+    Return True if recent values suggest the baseline has drifted.
+
+    Uses distribution comparison between calibration-time healthy data and
+    a recent window to detect two signals:
+
+      Signal A — mean shift: the operating centre has moved by more than
+        `mean_shift_threshold` (relative fraction, default 20%).
+
+      Signal B — spread change: variance has doubled (`std_ratio > 2.0`)
+        or halved (`std_ratio < 0.5`) relative to the calibration period.
+
+    Returns True when either signal fires and there are enough recent samples.
+    A third signal (AnomalyState.ANOMALOUS at healthy sigma) must be checked
+    externally via AnomalyTracker — see `needs_recalibration` docs.
+
+    Args:
+        calibration_samples:  original healthy measurements used to build the Parser
+        recent_samples:       recent window of observed values
+        mean_shift_threshold: relative mean shift that triggers recalibration (default 0.2)
+        std_ratio_high:       std ratio above which spread is considered changed (default 2.0)
+        std_ratio_low:        std ratio below which spread is considered changed (default 0.5)
+        min_recent:           minimum recent samples required to make a judgment (default 5)
+    """
+    if len(recent_samples) < min_recent or len(calibration_samples) < 2:
+        return False
+
+    from .anomaly import check_distribution
+    ds = check_distribution(recent_samples, calibration_samples)
+
+    mean_shifted = abs(ds.mean_shift) > mean_shift_threshold
+    spread_changed = ds.std_ratio > std_ratio_high or ds.std_ratio < std_ratio_low
+
+    return mean_shifted or spread_changed
+
+
+def recalibrate_parser(
+    parser: Parser,
+    new_healthy_data: dict[str, list[float]],
+    polarities: Optional[dict[str, bool]] = None,
+    components: Optional[list[str]] = None,
+    intact_fraction: float = 0.70,
+    ablated_fraction: float = 0.30,
+    active_min: float = 0.05,
+) -> tuple[Parser, dict[str, CalibrationResult]]:
+    """
+    Return a new Parser with updated baselines for components whose healthy
+    operating range has drifted.
+
+    Does NOT mutate the input parser — returns a replacement. Components not
+    in `new_healthy_data` (or not in `components`) keep their existing
+    baselines and thresholds unchanged.
+
+    Use after `needs_recalibration()` signals that a component's baseline
+    is stale, or when you have a new labeled window of known-healthy data.
+
+    Args:
+        parser:           the existing Parser to replace
+        new_healthy_data: {component: [new_healthy_measurements]}
+        polarities:       {component: higher_is_better} overrides (defaults
+                          to existing parser polarity for each component)
+        components:       allowlist of components to recalibrate; if None,
+                          all components in new_healthy_data are recalibrated
+        intact_fraction:  fraction of baseline for intact threshold
+        ablated_fraction: fraction of baseline for ablated threshold
+        active_min:       minimum correction magnitude
+
+    Returns:
+        (new_parser, results) where results is {component: CalibrationResult}
+        for each recalibrated component.
+
+    Transition notes:
+    - Historical Ledger Observations remain anchored to the baseline that was
+      active when they were recorded. Recalibration does not rewrite history.
+    - After recalibrating, rebuild Monitor from the new Parser:
+        save_monitor(old_monitor, "checkpoint.json")  # optional audit trail
+        new_monitor = Monitor(new_parser, drift_window=..., anomaly_window=...,
+                               correlation_window=...)
+    - Per-tracker windows should match the old Monitor's windows for continuity.
+    """
+    polarities = polarities or {}
+    to_recalibrate = set(components) if components else set(new_healthy_data.keys())
+
+    results: dict[str, CalibrationResult] = {}
+    new_baselines: dict[str, float] = {}
+    new_component_thresholds: dict[str, Thresholds] = {}
+
+    for name in to_recalibrate:
+        if name not in new_healthy_data:
+            continue
+        vals = new_healthy_data[name]
+        # Resolve polarity: explicit override → existing parser polarity → True
+        existing_t = parser.component_thresholds.get(name) or parser.thresholds
+        hib = polarities.get(name, existing_t.higher_is_better)
+        result = calibrate(vals, hib, intact_fraction, ablated_fraction, active_min)
+        results[name] = result
+        new_baselines[name] = result.baseline
+        new_component_thresholds[name] = result.thresholds
+
+    # Merge: new overrides old; unrecalibrated components are preserved verbatim
+    merged_baselines = {**parser.baselines, **new_baselines}
+    merged_component_thresholds = {**parser.component_thresholds, **new_component_thresholds}
+
+    # Default thresholds: recalibrate if the first component was recalibrated,
+    # otherwise keep the existing default.
+    first_name = list(parser.baselines.keys())[0] if parser.baselines else None
+    if first_name and first_name in new_component_thresholds:
+        default_thresholds = new_component_thresholds.pop(first_name)
+        merged_component_thresholds.pop(first_name, None)
+    else:
+        default_thresholds = parser.thresholds
+        # Remove first component from component_thresholds if it was there
+        if first_name:
+            merged_component_thresholds.pop(first_name, None)
+
+    new_parser = Parser(
+        baselines=merged_baselines,
+        thresholds=default_thresholds,
+        component_thresholds=merged_component_thresholds,
+    )
+
+    return new_parser, results
 
 
 def parser_from_calibration(

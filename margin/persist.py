@@ -25,6 +25,9 @@ def save_monitor(monitor: Monitor, path: str) -> None:
     state = {
         "step": monitor.step,
         "window": monitor.window,
+        "drift_window": monitor.drift_window,
+        "anomaly_window": monitor.anomaly_window,
+        "correlation_window": monitor.correlation_window,
         "drift": {},
         "anomaly": {},
         "correlation": {
@@ -59,7 +62,16 @@ def load_monitor(path: str, parser: Parser, **kwargs) -> Monitor:
     data = json.loads(Path(path).read_text())
 
     window = data.get("window", kwargs.pop("window", 100))
-    monitor = Monitor(parser, window=window, **kwargs)
+    drift_window = data.get("drift_window", kwargs.pop("drift_window", None))
+    anomaly_window = data.get("anomaly_window", kwargs.pop("anomaly_window", None))
+    correlation_window = data.get("correlation_window", kwargs.pop("correlation_window", None))
+    monitor = Monitor(
+        parser, window=window,
+        drift_window=drift_window,
+        anomaly_window=anomaly_window,
+        correlation_window=correlation_window,
+        **kwargs,
+    )
     monitor._step = data.get("step", 0)
 
     # Restore drift tracker observations
@@ -97,24 +109,36 @@ def replay(
     data: list[dict[str, float]],
     timestamps: Optional[list[datetime]] = None,
     window: int = 100,
+    drift_window: Optional[int] = None,
+    anomaly_window: Optional[int] = None,
+    correlation_window: Optional[int] = None,
     **kwargs,
 ) -> tuple[Monitor, list[dict]]:
     """
     Replay historical data through a Monitor.
 
     Args:
-        parser:     Parser for health classification
-        data:       list of {component: value} dicts, one per step
-        timestamps: optional timestamps per step (defaults to 1-second intervals)
-        window:     tracker window size
-        **kwargs:   passed to Monitor
+        parser:            Parser for health classification
+        data:              list of {component: value} dicts, one per step
+        timestamps:        optional timestamps per step (defaults to 1-second intervals)
+        window:            base tracker window size (all trackers inherit if per-tracker not set)
+        drift_window:      override window for DriftTracker
+        anomaly_window:    override window for AnomalyTracker
+        correlation_window: override window for CorrelationTracker
+        **kwargs:          passed to Monitor
 
     Returns (monitor, snapshots) where snapshots is a list of status dicts,
     one per step.
     """
     from datetime import timedelta
 
-    monitor = Monitor(parser, window=window, **kwargs)
+    monitor = Monitor(
+        parser, window=window,
+        drift_window=drift_window,
+        anomaly_window=anomaly_window,
+        correlation_window=correlation_window,
+        **kwargs,
+    )
     snapshots = []
 
     t0 = timestamps[0] if timestamps else datetime(2000, 1, 1)
@@ -132,6 +156,9 @@ def replay_csv(
     path: str,
     timestamp_column: Optional[str] = None,
     window: int = 100,
+    drift_window: Optional[int] = None,
+    anomaly_window: Optional[int] = None,
+    correlation_window: Optional[int] = None,
     **kwargs,
 ) -> tuple[Monitor, list[dict]]:
     """
@@ -166,4 +193,10 @@ def replay_csv(
             if values:
                 rows.append(values)
 
-    return replay(parser, rows, timestamps or None, window, **kwargs)
+    return replay(
+        parser, rows, timestamps or None, window,
+        drift_window=drift_window,
+        anomaly_window=anomaly_window,
+        correlation_window=correlation_window,
+        **kwargs,
+    )

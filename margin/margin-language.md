@@ -28,7 +28,7 @@ becomes a typed finding.
 An **expression** is the unit of discourse — one fully-parsed state of
 all monitored components at one moment:
 
-```
+```text
 Expression     ::=  "∅"
                   | Observation+  Correction*
 
@@ -57,7 +57,7 @@ gets the correction; one correction per expression).
 Three layers:
 
 | Layer | Object | Meaning |
-|---|---|---|
+| --- | --- | --- |
 | **Measurement** | `Observation` | "Component C had value v, giving health H with confidence Q" |
 | **Intervention** | `Correction` | "Operation Op is being applied to component C with intensity α" |
 | **Composition** | `Expression` | "The joint state of all components, with net confidence = weakest measurement" |
@@ -68,7 +68,7 @@ The language never overclaims.
 
 ### Health as a partial order
 
-```
+```text
 OOD          (measurement invalid — confidence is INDETERMINATE)
   ↑
 ABLATED      (functionally absent — value past the ablated threshold)
@@ -99,11 +99,13 @@ on `Thresholds` via `higher_is_better: bool` and threads through every
 comparison, sigma calculation, and correction decision.
 
 For `higher_is_better=True`:
+
 - `value >= intact` → INTACT
 - `value < ablated` → ABLATED
 - `sigma = (value - baseline) / |baseline|` — positive = healthier
 
 For `higher_is_better=False`:
+
 - `value <= intact` → INTACT
 - `value > ablated` → ABLATED
 - `sigma = (baseline - value) / |baseline|` — positive = healthier
@@ -121,19 +123,32 @@ polarities.
 
 - `sigma = 0.0` → exactly at baseline
 - `sigma = -1.0` → value has deviated to the worst possible direction
+
   by one full baseline unit
+
 - `sigma > 0.0` → component is performing better than baseline
+
+> **Known limitation — sigma overloading:** Sigma is used as a health classifier
+> input, a correction intensity source (`alpha_from_sigma`), and an improvement
+> metric simultaneously. A component at σ=−0.5 drifting slowly is not the same
+> situation as one at σ=−0.5 after a sudden drop, but the language treats them
+> identically until you add drift. Use `full_step()` which composes sigma with
+> drift classification. Do not use `alpha_from_sigma=True` without also checking
+> drift direction — a correction sized by sigma alone on an ACCELERATING component
+> will frequently be undersized.
 
 ### Edge-case semantics
 
 These behaviours are **specified**, not accidental:
 
 | Input | Behaviour | Rationale |
-|---|---|---|
+| --- | --- | --- |
 | `values = {}` (empty) | `to_string()` → `"[∅]"`, `corrections = []` | No measurement → null expression |
 | `value = NaN` | Falls through to DEGRADED (NaN comparisons are False) | Sensor failure produces the least-confident non-OOD state |
 | `value = +∞` (higher_is_better) | INTACT | Infinite value → trivially healthy |
 | `value = +∞` (lower_is_better) | ABLATED | Infinite value → maximally unhealthy |
+| `value = -∞` (higher_is_better) | ABLATED | Negative-infinite value → maximally unhealthy |
+| `value = -∞` (lower_is_better) | INTACT | Negative-infinite value → trivially healthy |
 | Unknown component (not in baselines) | Uses current value as baseline fallback; sigma = 0.0 | Graceful degradation — add to `baselines` to silence |
 | Value exactly at `intact` | INTACT (boundary belongs to the healthy side) | `>=` for higher_is_better, `<=` for lower_is_better |
 | Value exactly at `ablated` | DEGRADED (boundary belongs to the safer side) | Strict `<` / `>` for the ablated check |
@@ -142,23 +157,27 @@ These behaviours are **specified**, not accidental:
 ### What the language is NOT
 
 - It is not a probabilistic model. `Confidence` is an ordinal tier, not
+
   a calibrated probability. Sigma is a deterministic ratio, not a z-score.
 
 - It is not an executor. You don't run computations in it. It is the
+
   **observation format**: the typed output that records what the system
   observed. Computation lives in the algebra and the correction loop.
 
 - It does not interpret *why* a component is degraded. It describes the
+
   measurement; causation lives in domain-specific layers above it.
 
 - It does not prescribe what to do. `Correction` describes what action
+
   *was taken* — not what *should* be taken.
 
 ---
 
 ## Architecture overview
 
-```
+```text
 Raw measurement (float)
        │
        ▼
@@ -194,82 +213,63 @@ See [Structure](#structure) at the end of this document for the full file map.
 
 ---
 
-## Known limitations and design tradeoffs
+## Calibrating for a new domain
 
-These are honest gaps in the current design. They are not bugs — they are places
-where the abstraction is incomplete and users should be aware.
+All domain-specific numbers live in two places: the `baselines` dict and
+the `Thresholds` instances passed to `Parser`. Everything else in the
+language is domain-agnostic.
 
-### Sigma overloading
+### Step 1 — Determine baselines
 
-Sigma is used as a health classifier input, a correction intensity source
-(`alpha_from_sigma`), and an improvement metric. These are different roles.
-A component at σ=-0.5 drifting slowly is not the same situation as one at
-σ=-0.5 after a sudden drop. Sigma loses trajectory information by the time
-policy sees it.
+For each component, measure its value when the system is healthy. This
+becomes the `baseline` used for sigma normalisation.
 
-**Mitigation**: use `full_step()` which composes sigma with drift classification.
-Do not use `alpha_from_sigma=True` without also checking drift direction. A
-correction sized by sigma alone on an ACCELERATING component will frequently be
-undersized.
+### Step 2 — Set thresholds
 
-### RECOVERING is a function of correction input, not component state
+Choose `intact` and `ablated` boundaries. Rules of thumb:
 
-`Health.RECOVERING` means "would be ABLATED without the active correction." It is
-determined by the correction magnitude at the time of classification, not by the
-component's own trajectory. If the correction is withdrawn, the component snaps
-back to ABLATED with no state change.
+- `intact` = 70-80% of baseline (the point where you'd say "this is fine")
+- `ablated` = 20-30% of baseline (the point where the component is
 
-A component that has been RECOVERING for 50 steps with no improvement looks
-identical to one that just entered RECOVERING. Use `no_improvement()` from
-`policy/temporal.py` to detect this: it fires when corrections are running but
-mean improvement is ≤ 0.
+  effectively gone)
 
-### Confidence is ordinal, but the bridge layer introduces cardinality
+- For `higher_is_better=False`, these fractions work in reverse: `intact`
 
-`Confidence` is not a calibrated probability — `HIGH` does not mean "90%
-confident." However, `bridge.py`'s `observe()` function maps confidence tiers to
-specific numeric uncertainty fractions (HIGH → 5%, MODERATE → 15%, etc.). The
-round-trip `observe() → to_uncertain()` produces numbers that look precise but
-are derived from a discretization boundary. Downstream algebra propagates these
-as if they were measured. Do not interpret the resulting uncertainty intervals as
-calibrated probabilities.
+  is slightly above baseline, `ablated` is well above.
 
-### Asserted vs. discovered causal links have different epistemic status
+Set `active_min` to ~5–10% of the smallest correction magnitude meaningful
+for this component. The default of 0.05 suits normalized (0–1) values; for
+raw-unit components, scale proportionally to your correction range.
 
-`CausalGraph.add_degrades("A", "B")` and `auto_causal_graph(ledger)` both
-produce `CausalLink` objects, but with different reliability. Asserted links
-are authoritative declarations. Discovered links are correlational heuristics
-— lag-based causal direction is plausible but wrong when confounders, feedback
-loops, or coincident cycles exist.
+### Step 3 — Construct a Parser
 
-All links now carry an `origin` field: `"asserted"` or `"discovered"`. Use
-`graph.asserted_links()` and `graph.discovered_links()` to query them separately.
-Do not treat discovered DEGRADES links as ground truth in high-stakes domains.
+```python
+from margin import Parser, Thresholds
 
-### No prospective cost model in policy
+parser = Parser(
+    baselines={
+        "throughput": 1000.0,
+        "p99_latency": 50.0,
+        "error_rate": 0.001,
+    },
+    thresholds=Thresholds(intact=800.0, ablated=300.0),
+    component_thresholds={
+        "p99_latency": Thresholds(intact=80.0, ablated=200.0, higher_is_better=False),
+        "error_rate": Thresholds(intact=0.005, ablated=0.05, higher_is_better=False),
+    },
+)
+```
 
-Policy rules fire based on conditions. High-alpha corrections and low-alpha
-corrections differ only in intensity, not in represented risk or side effects.
-The `harmful()` ledger query is retrospective — it catches corrections that
-degraded something else after the fact. There is no mechanism to represent
-"this correction will likely affect component X as a side effect."
+Or auto-calibrate from known-healthy data:
 
-For domains where corrections have real consequences, pair the policy layer with
-an Intent to constrain which corrections are acceptable given the goal.
+```python
+from margin import parser_from_calibration
 
-### Ledger grows without bound by default
-
-The `Ledger` is append-only with no default compaction. For long-running loops,
-use `Ledger(max_records=N)` to cap memory. The `window()` and `last_n()` methods
-create windowed views but do not prevent the underlying list from growing.
-
-### Monitor assumes aligned, synchronous updates
-
-`CorrelationTracker` requires all components present in each update (partial
-updates are silently skipped). In multi-sensor environments with different update
-rates, late arrivals, or components that go silent, the correlation window will
-be shorter than expected. Staleness checking exists on individual Observations
-via `is_fresh()` but is not integrated into `Monitor.update()`.
+parser = parser_from_calibration(
+    {"throughput": [980, 1010, 1000], "error_rate": [0.001, 0.0008, 0.0012]},
+    polarities={"error_rate": False},
+)
+```
 
 ---
 
@@ -279,7 +279,7 @@ Ordinal tiers for how much an uncertainty interval overlaps a decision
 boundary. Supports comparison operators (`Confidence.HIGH > Confidence.LOW`).
 
 | Tier | Meaning | Overlap with boundary |
-|---|---|---|
+| --- | --- | --- |
 | `CERTAIN` | interval fully clear | none |
 | `HIGH` | reliable | < 10% of interval width |
 | `MODERATE` | inferred or low-batch | 10-40% |
@@ -299,7 +299,7 @@ min([Confidence.HIGH, Confidence.LOW]) # Confidence.LOW
 Temporal validity for uncertain values. Three modes:
 
 | Mode | Behaviour | Factory |
-|---|---|---|
+| --- | --- | --- |
 | `STATIC` | Uncertainty stays constant | `Validity.static()` |
 | `DECAY` | Uncertainty doubles every `halflife` | `Validity.decaying(timedelta)` |
 | `EVENT` | Valid until named event fires | `Validity.until_event(name)` |
@@ -315,7 +315,7 @@ A scalar measurement with uncertainty, epistemic source, temporal
 validity, and provenance.
 
 | Field | Type | Meaning |
-|---|---|---|
+| --- | --- | --- |
 | `point` | float | Central estimate |
 | `uncertainty` | float | Magnitude (absolute or relative) |
 | `relative` | bool | If True, uncertainty is a fraction of \|point\| |
@@ -339,12 +339,15 @@ v.to_relative()            # copy with relative uncertainty
 Arithmetic operations that propagate uncertainty correctly:
 
 - **Independent** values (no shared provenance): uncertainties combine in
+
   **quadrature** — `sqrt(σ_a² + σ_b²)`
+
 - **Correlated** values (shared provenance): uncertainties combine
+
   **linearly** — `σ_a + σ_b` (conservative)
 
 | Function | Behaviour |
-|---|---|
+| --- | --- |
 | `add(a, b)` | Absolute uncertainties combine |
 | `subtract(a, b)` | Same as add |
 | `multiply(a, b)` | Relative uncertainties combine; falls back to absolute when either operand is zero |
@@ -371,7 +374,7 @@ Five typed health predicates. All threshold comparisons are
 polarity-aware.
 
 | Value | Meaning |
-|---|---|
+| --- | --- |
 | `INTACT` | value at or past the intact threshold (healthy direction) |
 | `DEGRADED` | between ablated and intact thresholds |
 | `ABLATED` | value past the ablated threshold (unhealthy direction) |
@@ -381,11 +384,11 @@ polarity-aware.
 ### `Thresholds` (dataclass)
 
 | Field | Type | Meaning |
-|---|---|---|
+| --- | --- | --- |
 | `intact` | float | boundary for calling healthy |
 | `ablated` | float | boundary for calling failed |
 | `higher_is_better` | bool | polarity (default True) |
-| `active_min` | float | minimum correction magnitude for "active" (default 0.05) |
+| `active_min` | float | minimum correction magnitude for "active" (default 0.05). Set to ~5–10% of the smallest correction magnitude meaningful for this component. The default suits normalized (0–1) values; for raw-unit components, scale proportionally to your correction range. |
 
 Validates on construction: `ablated <= intact` when `higher_is_better`,
 `ablated >= intact` when not.
@@ -404,7 +407,7 @@ Thresholds(intact=0.02, ablated=0.10, higher_is_better=False)
 
 Single source of truth for health classification.
 
-```
+```text
 confidence == INDETERMINATE           → OOD
 thresholds.is_intact(value)           → INTACT
 thresholds.is_ablated(value)
@@ -415,6 +418,14 @@ else
     else                              → DEGRADED
 ```
 
+> **Known limitation — RECOVERING is a function of correction input, not component
+> state:** `Health.RECOVERING` means "would be ABLATED without the active
+> correction." If the correction is withdrawn, the component snaps back to ABLATED
+> with no state change. A component that has been RECOVERING for 50 steps with no
+> improvement looks identical to one that just entered RECOVERING. Use
+> `no_improvement()` from `policy/temporal.py` to detect stall: it fires when
+> corrections are running but mean improvement is ≤ 0.
+
 ---
 
 ## `observation.py` — Observations, Corrections, Expressions
@@ -424,7 +435,7 @@ else
 One component's health at one measurement.
 
 | Field | Type | Meaning |
-|---|---|---|
+| --- | --- | --- |
 | `name` | str | Component identifier |
 | `health` | Health | Typed health predicate |
 | `value` | float | Raw measurement |
@@ -434,10 +445,12 @@ One component's health at one measurement.
 | `provenance` | list[str] | Upstream provenance IDs |
 
 Computed:
+
 - `sigma` — polarity-normalised deviation from baseline (positive = healthier)
 
 String rendering via `to_atom()`:
-```
+
+```text
 throughput:INTACT(-0.05σ)
 error_rate:DEGRADED(-4.00σ)
 cpu:OOD
@@ -446,7 +459,7 @@ cpu:OOD
 ### `Op` (Enum)
 
 | Value | Meaning |
-|---|---|
+| --- | --- |
 | `RESTORE` | fix a sub-threshold component |
 | `SUPPRESS` | silence an over-performing component |
 | `AMPLIFY` | strengthen a present-but-weak component |
@@ -460,7 +473,7 @@ AMPLIFY fires when it's intact but between threshold and baseline.
 ### `Correction` (dataclass)
 
 | Field | Type | Meaning |
-|---|---|---|
+| --- | --- | --- |
 | `target` | str | Which component |
 | `op` | Op | Operation type |
 | `alpha` | float | Intensity coefficient (0 = none, 1 = full) |
@@ -474,7 +487,7 @@ AMPLIFY fires when it's intact but between threshold and baseline.
 Composed snapshot of all observations and corrections at one moment.
 
 | Field | Type | Meaning |
-|---|---|---|
+| --- | --- | --- |
 | `observations` | list[Observation] | Per-component health readings |
 | `corrections` | list[Correction] | Actions being applied (may be empty) |
 | `confidence` | Confidence | Net = weakest observation |
@@ -482,6 +495,7 @@ Composed snapshot of all observations and corrections at one moment.
 | `step` | Optional[int] | Sequence index |
 
 Query helpers:
+
 ```python
 expr.health_of("api-latency")     # → Health or None
 expr.correction_for("error_rate") # → Correction or None
@@ -490,7 +504,8 @@ expr.intact()                     # → list[Observation] (INTACT only)
 ```
 
 String rendering via `to_string()`:
-```
+
+```text
 [throughput:INTACT(-0.05σ)]
 [error_rate:DEGRADED(-4.00σ) → RESTORE(α=0.60)]
 [throughput:INTACT(-0.05σ)] [error_rate:RECOVERING(-7.00σ) → RESTORE(α=0.60)]
@@ -542,7 +557,7 @@ no observations the expression gets INDETERMINATE.
 One correction event: before state, what was done, after state.
 
 | Field | Type | Meaning |
-|---|---|---|
+| --- | --- | --- |
 | `step` | int | Sequence index (0-based) |
 | `tag` | str | Label (e.g. request ID, token text) |
 | `before` | Observation | State before correction |
@@ -553,6 +568,7 @@ One correction event: before state, what was done, after state.
 | `magnitude` | float | Size of the correction |
 
 Computed (all polarity-aware):
+
 - `improvement` — positive = better, regardless of polarity
 - `recovery_ratio` — 1.0 = fully restored to baseline, both polarities
 - `was_beneficial()` — True if improvement > 0 or gate didn't fire
@@ -562,12 +578,13 @@ Computed (all polarity-aware):
 Accumulates Records across a session.
 
 ```python
-ledger = Ledger(label="my-run")
+ledger = Ledger(label="my-run")                   # unbounded
+ledger = Ledger(label="my-run", max_records=1000)  # cap at 1000 records (oldest dropped)
 ledger.append(record)
 ```
 
 | Property | Returns |
-|---|---|
+| --- | --- |
 | `n_fired` | count of fired corrections |
 | `fire_rate` | `n_fired / len(records)` |
 | `mean_improvement` | mean improvement across fired records |
@@ -583,89 +600,86 @@ print(ledger.summary())
 # {"label": "my-run", "n_steps": 2, "n_fired": 1, ...}
 ```
 
+> **Known limitation — Ledger grows without bound by default:** The `Ledger` is
+> append-only with no default compaction. For long-running loops, use
+> `Ledger(max_records=N)` to cap memory. The `window()` and `last_n()` methods
+> create windowed views but do not prevent the underlying list from growing.
+
 ---
 
 ## Invariants and design constraints
 
 1. **`classify()` is the single source of truth.** No other code
+
    re-implements the threshold logic.
 
 2. **Polarity is explicit.** Every `Thresholds` declares
+
    `higher_is_better`. Every `Observation` carries it. Every comparison,
    sigma, improvement, and recovery calculation respects it.
 
 3. **RECOVERING is a transition state, not a terminal one.** It signals
+
    that a correction is running now. Whether the component reaches
    INTACT is tracked by `improvement` in the subsequent Record.
 
 4. **Sigma is always polarity-normalised.** Positive = healthier than
+
    baseline, negative = worse, regardless of which direction "better" is.
 
 5. **Net confidence is bottlenecked.** An Expression's confidence is the
+
    weakest observation. The language never overclaims.
 
 6. **Provenance threads through every object.** UncertainValue,
+
    Observation, and Correction carry provenance IDs. Shared provenance
    triggers conservative (linear) uncertainty combination.
 
 7. **`active_min` is per-component.** Each component's Thresholds
+
    controls when correction magnitude counts as "active" for that
    component's RECOVERING classification *and* for correction targeting.
    The correction targets the worst component whose `active_min` is met,
    not the globally worst component.
 
 8. **Boundary ownership.** Value exactly at `intact` → INTACT. Value
+
    exactly at `ablated` → DEGRADED. Both boundaries belong to the
    safer classification.
 
 9. **Serialization is lossless.** `to_dict()`/`from_dict()` roundtrips
-   preserve exact values. No rounding is applied during serialization.
+
+   preserve exact values for all fields. `alpha` and `magnitude` on
+   `Correction` are stored without rounding. `sigma` is not stored in
+   the serialized dict — it is recomputed from `value` and `baseline`
+   on access.
 
 10. **Severity is defined once.** The `SEVERITY` dict in `health.py`
+
     is the single source of truth for Health ordering. `diff.py` and
     `composite.py` import it rather than defining their own.
 
----
+### Violation behavior
 
-## Calibrating for a new domain
+These invariants are enforced for Expressions constructed through
+`Parser.parse()`. Callers who construct `Observation`, `Correction`, or
+`Expression` directly (e.g. for testing or deserialization) are
+responsible for maintaining them. The table below documents what happens
+when each invariant is violated.
 
-All domain-specific numbers live in two places: the `baselines` dict and
-the `Thresholds` instances passed to `Parser`. Everything else in the
-language is domain-agnostic.
-
-### Step 1 — Determine baselines
-
-For each component, measure its value when the system is healthy. This
-becomes the `baseline` used for sigma normalisation.
-
-### Step 2 — Set thresholds
-
-Choose `intact` and `ablated` boundaries. Rules of thumb:
-
-- `intact` = 70-80% of baseline (the point where you'd say "this is fine")
-- `ablated` = 20-30% of baseline (the point where the component is
-  effectively gone)
-- For `higher_is_better=False`, these fractions work in reverse: `intact`
-  is slightly above baseline, `ablated` is well above.
-
-### Step 3 — Construct a Parser
-
-```python
-from margin import Parser, Thresholds
-
-parser = Parser(
-    baselines={
-        "throughput": 1000.0,
-        "p99_latency": 50.0,
-        "error_rate": 0.001,
-    },
-    thresholds=Thresholds(intact=800.0, ablated=300.0),
-    component_thresholds={
-        "p99_latency": Thresholds(intact=80.0, ablated=200.0, higher_is_better=False),
-        "error_rate": Thresholds(intact=0.005, ablated=0.05, higher_is_better=False),
-    },
-)
-```
+| # | Reachable via | Runtime consequence | Enforced in code | Action |
+| --- | --- | --- | --- | --- |
+| 1 | Direct `Observation` construction with wrong `health` field | Silent misclassification. `INTACT(-0.95σ)` is visible in rendered output but no exception raised. Policy predicates act on the wrong health state. | No | Document-only. A validator would require threading `Thresholds` into `Observation`, breaking `from_dict()`. |
+| 2 | Constructing `Observation` with `higher_is_better` mismatched to the `Thresholds` that classified it | Sigma inverts. A WORSENING drift reads as IMPROVING. `improvement` and `recovery_ratio` compute the wrong direction. No exception. | No | Document-only. `higher_is_better` on `Observation` is deliberately redundant provenance for consumers without access to `Thresholds`. |
+| 3 | Constructing `Expression` with `health=RECOVERING` on an `Observation` but no active `Correction` targeting it | Component appears in `degraded()`. `no_improvement()` will not fire on it (it checks the ledger for fired corrections, not the Expression health field). No exception. | No | Document-only. Only reachable by bypassing `Parser`. |
+| 4 | Only reachable via invariant 2 violation | See invariant 2. `sigma` is derived from `higher_is_better`. | Corollary of 2 | — |
+| 5 | Direct `Expression` construction with `confidence` higher than the weakest observation | Silent overclaim. `min_confidence` policy gates fire when they should not. | **Yes — warning** emitted by `Expression.__post_init__`. Not a raise (would break `from_dict()`). | Warning on construction. |
+| 6 | Computing derived `UncertainValue` outside `algebra.py` without preserving provenance | `combine_uncertainties()` treats correlated values as independent, uses quadrature instead of linear combination, underestimates uncertainty intervals. No exception. | No | Document-only. Provenance is opt-in metadata. |
+| 7 | Constructing an `Expression` with `health=RECOVERING` on a component whose `Correction.magnitude` is below `active_min` | `Correction.is_active()` returns True (it checks `op != NOOP and alpha > 0`, not `active_min`). Policy rules keyed on `any_correction()` fire incorrectly. | No | Document-only. `is_active()` cannot check `active_min` without access to `Thresholds`. Callers needing `active_min`-aware activity must compare `correction.magnitude` against `thresholds.active_min` themselves. |
+| 8 | Direct construction of `Observation` with `health=ABLATED` at a value exactly equal to the `ablated` threshold | Silent misclassification at the boundary. Component treated as failed rather than degraded. | No | Document-only. Invariant is enforced by `classify()` via strict inequality (`<` / `>`). Only reachable by bypassing `classify()`. |
+| 9 | N/A — lossless by construction | — | Yes — no rounding in `to_dict()` | — |
+| 10 | Adding a new module that defines its own `SEVERITY` dict | Health ordering inconsistencies between modules. `diff.py` and `composite.py` would disagree on relative severity. | By convention | Any new file comparing Health severity must import `SEVERITY` from `health.py`. |
 
 ---
 
@@ -696,7 +710,7 @@ d.disappeared()     # components in before but not after
 ### `ComponentChange` (dataclass)
 
 | Property | Returns |
-|---|---|
+| --- | --- |
 | `health_changed` | True if health state differs |
 | `sigma_delta` | sigma_after - sigma_before (positive = healthier) |
 | `worsened` | True if health moved toward ABLATED/OOD |
@@ -753,6 +767,118 @@ parser = parser_from_calibration(
     polarities={"latency": False},
 )
 expr = parser.parse({"throughput": 95.0, "latency": 52.0})
+```
+
+---
+
+## Baseline recalibration
+
+Baselines are set at `Parser` construction and used for all subsequent sigma
+calculations. In long-running systems the "healthy operating point" can shift —
+a model after fine-tuning, a sensor after recalibration, a biochem process that
+has stabilised at a new equilibrium. Sigma calculated against a stale baseline
+produces systematically misleading health classifications with no runtime signal
+that the baseline is the problem.
+
+### When to recalibrate
+
+Three signals indicate the baseline may no longer be representative:
+
+**Signal A — mean shift:** the component's recent values are centred away from
+the original calibration baseline. Use `check_distribution()` from `anomaly.py`
+with the original calibration samples as reference:
+
+```python
+from margin import check_distribution
+
+ds = check_distribution(recent_window, calibration_samples)
+if abs(ds.mean_shift) > 0.2:   # >20% relative shift
+    print("baseline drift detected")
+```
+
+**Signal B — spread change:** variance has doubled or halved relative to
+calibration (e.g. a newly-stabilised process, or one that has become noisier).
+Check `ds.std_ratio > 2.0` or `ds.std_ratio < 0.5`.
+
+**Signal C — anomaly-at-healthy-sigma:** `AnomalyTracker.state == ANOMALOUS`
+for K consecutive steps despite sigma near 0 or positive. The component looks
+healthy by health classification but statistically unusual relative to its
+calibration reference. This is the "silent staleness" pattern — check it
+externally via your Monitor's anomaly tracker.
+
+Or use the combined helper:
+
+```python
+from margin import needs_recalibration
+
+if needs_recalibration(calibration_samples, recent_window):
+    # Signal A or B has fired — consider recalibrating
+```
+
+`needs_recalibration()` checks signals A and B. Signal C must be checked
+against `monitor.anomaly(component).state`.
+
+### `recalibrate_parser(parser, new_healthy_data, ...) -> (Parser, results)`
+
+Recalibrate one or more components and return a **new** `Parser`. The input
+parser is never mutated. Components not in `new_healthy_data` keep their
+existing baselines verbatim — partial recalibration never drops a component.
+
+```python
+from margin import recalibrate_parser, needs_recalibration, save_monitor, Monitor
+
+# 1. Detect
+if needs_recalibration(original_samples["throughput"], recent_window):
+
+    # 2. Collect new healthy data (caller must identify a known-good window)
+    new_data = {"throughput": collect_healthy_window()}
+
+    # 3. Recalibrate — returns new Parser and CalibrationResult per component
+    new_parser, results = recalibrate_parser(old_parser, new_data)
+    print(results["throughput"].baseline)   # new baseline value
+
+    # 4. Optional: checkpoint old Monitor state for audit trail
+    save_monitor(old_monitor, "checkpoint_before_recal.json")
+
+    # 5. Rebuild Monitor with the new Parser, preserving per-tracker windows
+    new_monitor = Monitor(
+        new_parser,
+        drift_window=old_monitor.drift_window,
+        anomaly_window=old_monitor.anomaly_window,
+        correlation_window=old_monitor.correlation_window,
+    )
+```
+
+| Arg | Default | Notes |
+| --- | --- | --- |
+| `parser` | required | The existing Parser to replace |
+| `new_healthy_data` | required | `{component: [measurements]}` |
+| `polarities` | `{}` | Override polarity per component; defaults to existing parser polarity |
+| `components` | `None` | Allowlist — if None, all keys in `new_healthy_data` are recalibrated |
+| `intact_fraction` | `0.70` | Same semantics as `calibrate()` |
+| `ablated_fraction` | `0.30` | Same semantics as `calibrate()` |
+| `active_min` | `0.05` | Same semantics as `calibrate()` |
+
+### Transition semantics
+
+**Historical Ledger data** — `Observation` objects already in a `Ledger` were
+classified against the old parser. Their `.sigma` property recomputes from the
+embedded `.baseline` field set at parse-time. Recalibration does not rewrite
+history. This is correct: the Ledger is an immutable record of what was
+observed under which baseline.
+
+**Monitor tracker windows** — after recalibrating, rebuild `Monitor` from
+scratch around the new `Parser` (see example above). The old Monitor's drift
+and anomaly windows contain observations stamped with the old baseline. Accept
+a window-length warm-up period during which classifications may reflect
+mixed-baseline data, or use `save_monitor()` / `load_monitor()` to checkpoint
+before rebuilding.
+
+**Marking the boundary** — fire an event on the EventBus so downstream
+consumers can identify the recalibration point in the audit trail:
+
+```python
+bus.fire("recalibrated")
 ```
 
 ---
@@ -964,7 +1090,7 @@ models to classify the trajectory shape, direction, and confidence.
 ### Drift states
 
 | State | Meaning |
-| ----- | ------- |
+| --- | --- |
 | `STABLE` | Value not changing meaningfully (slope within noise) |
 | `DRIFTING` | Consistent linear trend in one direction |
 | `ACCELERATING` | Rate of change is increasing |
@@ -1049,7 +1175,9 @@ df.summary           # "rps: DRIFTING(WORSENING), ETA ablated: 7.5m"
 Classification logic:
 
 1. **Oscillation check** — if slope is not significant but residuals show
+
    zero crossings with significant amplitude → `OSCILLATING`
+
 2. **Slope significance** — if slope is within noise → `STABLE`
 3. **Reversion** — value was unhealthy, now moving back toward baseline → `REVERTING`
 4. **Acceleration** — quadratic R² significantly improves over linear → `ACCELERATING` or `DECELERATING`
@@ -1074,7 +1202,7 @@ but at a level never seen before — anomaly catches that.
 ### Anomaly states
 
 | State | Meaning |
-| ----- | ------- |
+| --- | --- |
 | `EXPECTED` | Value within normal statistical range of reference data |
 | `UNUSUAL` | Uncommon (beyond 2σ) but not extreme |
 | `ANOMALOUS` | Statistical outlier (beyond 3σ) |
@@ -1220,7 +1348,21 @@ matched = evaluate_rules(rules, expr)
 
 ---
 
-## `bridge.py` — Reverse bridge (`to_uncertain`)
+## `bridge.py` — UncertainValue ↔ Observation
+
+`bridge.py` is the connection point between the uncertainty algebra layer
+(`UncertainValue`) and the health classification layer (`Observation`). Use
+it when your values already carry explicit uncertainty structure and you want
+confidence derived from the uncertainty interval, rather than the fixed
+`Confidence.HIGH` default that `Parser.parse()` applies.
+
+Use `Parser.parse()` for the common case — raw floats, one call, done.
+Use `bridge.observe()` / `observe_many()` when upstream code already
+produces `UncertainValue` objects (e.g., from `algebra.py` operations or
+sensor fusion), or when you need `to_uncertain()` to re-enter the algebra
+after classification.
+
+### Reverse bridge — `to_uncertain()`
 
 `to_uncertain()` reconstructs an `UncertainValue` from an `Observation`,
 closing the algebra-health loop.
@@ -1243,12 +1385,19 @@ Uncertainty is inferred from the confidence tier:
 | LOW | 25% |
 | INDETERMINATE | 50% |
 
+> **Known limitation — confidence cardinality leakage:** These fractions are
+> author-chosen conventions with no empirical grounding. `Confidence.HIGH` does
+> not mean "90% confident" and the 5% fraction is not derived from measurement
+> theory. The round-trip `observe() → to_uncertain()` produces numbers that look
+> precise but are derived from a discretization boundary. Do not interpret the
+> resulting uncertainty intervals as calibrated probabilities in downstream algebra.
+
 This enables round-tripping: `observe()` → Observation → `to_uncertain()`
 → UncertainValue → feed back into the algebra.
 
 ---
 
-## `bridge.py` — Forward bridge (UncertainValue → Observation)
+### Forward bridge — `observe()`
 
 `observe()` creates a typed Observation from an UncertainValue. The
 confidence tier is derived automatically from the uncertainty interval's
@@ -1395,6 +1544,14 @@ Bounds applied after action resolution: alpha clamping (`max_alpha`,
 (`max_per_window` / `window_steps`). Returns clamped Correction or
 None (suppressed).
 
+> **Known limitation — no prospective cost model:** Rules fire based on
+> conditions. High-alpha and low-alpha corrections differ only in intensity —
+> there is no representation of what a correction costs or what side effects it
+> may have. The `harmful()` ledger query is retrospective; it catches corrections
+> that degraded something else after the fact. For domains where corrections have
+> real consequences, pair the policy layer with an Intent to constrain which
+> corrections are acceptable given the goal.
+
 ### Escalation
 
 What to return when the policy cannot act: `LOG`, `ALERT`, or `HALT`
@@ -1426,6 +1583,7 @@ A named set of prioritised rules:
 - `evaluate(expr, ledger)` — all matching results, priority-descending
 - `evaluate_first(expr, ledger)` — highest priority result
 - `backtest(ledger)` — replay decisions against history, includes
+
   `proposed_by` (which rule won at each step)
 
 ## `policy/temporal.py`
@@ -1554,8 +1712,14 @@ A typed relationship between two components:
 | `CORRELATES` | Co-occurring, direction uncertain |
 | `MITIGATES` | A's health improvement helps B recover |
 
-Links have a `strength` (0-1) and optional `condition` (only active when
-source is in a specific health state).
+Each link carries:
+
+| Field | Type | Meaning |
+| --- | --- | --- |
+| `strength` | float 0–1 | How strongly the cause affects the target |
+| `condition` | Optional[Health] | Link is only active when source is in this state |
+| `evidence` | Optional[str] | Free-text rationale for asserted links |
+| `origin` | str | `"asserted"` (manually declared) or `"discovered"` (auto_causal_graph) |
 
 ### CausalGraph
 
@@ -1567,11 +1731,13 @@ graph.add_degrades("db", "api", 0.9, evidence="db outage kills api")
 graph.add_blocks("cache", "api", 0.5, condition=Health.ABLATED)
 graph.add_degrades("api", "frontend", 0.7)
 
-graph.causes_of("api")     # [db→api, cache→api]
-graph.effects_of("db")     # [db→api]
-graph.upstream("frontend")  # ["api", "db", "cache"]
-graph.downstream("db")      # ["api", "frontend"]
-graph.roots()               # ["db", "cache"]
+graph.causes_of("api")          # [db→api, cache→api]
+graph.effects_of("db")          # [db→api]
+graph.upstream("frontend")       # ["api", "db", "cache"]
+graph.downstream("db")           # ["api", "frontend"]
+graph.roots()                    # ["db", "cache"]
+graph.asserted_links()           # links added via add_degrades / add_blocks / etc.
+graph.discovered_links()         # links produced by auto_causal_graph()
 ```
 
 ### Explanation
@@ -1622,6 +1788,16 @@ Each `Correlation` has:
 Lag detection: when `max_lag > 0`, tests all lags from -max_lag to +max_lag
 and returns the lag with the strongest absolute correlation. If A leads B,
 the causal direction is inferred as A → B.
+
+> **Known limitation — asserted vs. discovered causal links have different
+> epistemic status:** `add_degrades("A", "B")` and `auto_causal_graph(ledger)`
+> both produce `CausalLink` objects, but with very different reliability.
+> Asserted links are authoritative declarations. Discovered links are
+> correlational heuristics — lag-based causal direction is plausible but wrong
+> when confounders, feedback loops, or coincident cycles exist. All links carry
+> an `origin` field (`"asserted"` or `"discovered"`). Use `graph.asserted_links()`
+> and `graph.discovered_links()` to query them separately. Do not treat discovered
+> DEGRADES links as ground truth in high-stakes domains.
 
 Predicates for policy rules:
 
@@ -1682,7 +1858,7 @@ result = intent.evaluate_monitor(monitor)
 ### Feasibility states
 
 | State | Meaning |
-| ----- | ------- |
+| --- | --- |
 | `FEASIBLE` | All requirements met, trajectories OK |
 | `AT_RISK` | Requirements met now, but drift threatens deadline |
 | `INFEASIBLE` | Requirements already violated or will be before deadline |
@@ -1700,35 +1876,47 @@ This is the layer that turns margin from monitoring into decision support.
 
 ## The full loop
 
-The eight layers form a complete typed loop:
+The six stages form a complete typed loop:
 
 ```text
         ┌─────────────────────────────────────────────┐
         │                                             │
         ▼                                             │
+
   1. OBSERVE (foundation + observability)             │
+
      Expression: [api:DEGRADED(-0.5σ)]                │
         │                                             │
         ▼                                             │
+
   2. EXPLAIN (causal)                                 │
+
      api:DEGRADED ← db:ABLATED --DEGRADES-->          │
         │                                             │
         ▼                                             │
+
   3. DECIDE (policy)                                  │
+
      Rule "critical" matched → RESTORE(api, α=0.9)   │
      DecisionTrace: 2/3 rules matched, winner=critical│
         │                                             │
         ▼                                             │
+
   4. ACT                                              │
+
      Apply correction → new state                     │
         │                                             │
         ▼                                             │
+
   5. EVALUATE (contract)                              │
+
      [+] api-intact: MET                              │
      [?] api-stable: 2/10 steps                       │
         │                                             │
         ▼                                             │
+
   6. RECORD (ledger)                                  │
+
      step 5: [api:RECOVERING(-0.2σ) → RESTORE(α=0.9)]│
         │                                             │
         └─────────── next step ───────────────────────┘
@@ -1806,7 +1994,7 @@ outcomes. Each Expression is taken as-is.
 
 ### `full_step(monitor, values, policy, ...) -> FullStepResult`
 
-Run ALL eight layers in one call:
+Run all six stages in one call:
 
 1. `Monitor.update()` → health + drift + anomaly + correlation
 2. `step()` → explain + decide + contract
@@ -1870,6 +2058,14 @@ ct.strongest(3)              # top 3 correlations
 
 All components must be present in each update for alignment.
 
+> **Known limitation — Monitor assumes aligned, synchronous updates:**
+> `CorrelationTracker` silently skips partial updates — if any component is
+> missing from a call to `ct.update()`, that step is not recorded. In
+> multi-sensor environments with different update rates, late arrivals, or
+> components that go silent, the effective correlation window will be shorter
+> than the configured `window`. Staleness checking exists on individual
+> Observations via `is_fresh()` but is not integrated into `Monitor.update()`.
+
 ### Monitor — unified streaming
 
 Wraps a Parser and all trackers. One call updates everything:
@@ -1898,8 +2094,38 @@ while True:
     monitor.status()                  # full snapshot dict
 ```
 
-All windows are bounded (default 100), so memory is constant regardless
-of how long the loop runs.
+All windows are bounded, so memory is constant regardless of how long the loop runs.
+
+### Window configuration
+
+Different concerns operate on different timescales. Drift detection needs a
+short window to catch fast degradation; anomaly detection needs a longer
+reference to produce stable z-scores; correlation needs even more history to
+separate structure from noise.
+
+```python
+from margin import Monitor, WindowConfig
+
+# Named parameters — backward-compatible, all default to `window` when omitted
+monitor = Monitor(parser, window=100, drift_window=50, anomaly_window=200, correlation_window=500)
+
+# Or via WindowConfig for config-driven setups
+monitor = Monitor(parser, window=100, window_config=WindowConfig(drift=50, anomaly=200, correlation=500))
+```
+
+Domain guidance — recommended window ratios (`anomaly ≈ 4× drift`, `correlation ≈ 10× drift`):
+
+| Domain | Step interval | `drift_window` | `anomaly_window` | `correlation_window` | Notes |
+| --- | --- | --- | --- | --- | --- |
+| Ops / infra monitoring | 1–5 s | 50 | 200 | 500 | Drift catches fast degradation; correlation needs structural history |
+| ML training | epoch or batch | 20 | 100 | 200 | Training curves are slow; short drift window catches overfitting knee |
+| Biochem pipeline | 100 ms – 1 s | 10 | 30 | 100 | Fast reaction timescales; correlation needs multiple reaction cycles |
+| Game loop | frame (16 ms) | 100 | 500 | 1000 | Frames are noisy; drift needs seconds of averaging before classifying |
+| Robot / actuator | 10–50 ms | 30 | 100 | 300 | Covers multiple task cycles for meaningful correlation |
+
+Note: `anomaly_min_reference` must be less than `anomaly_window`. The default
+is 10; if you set `anomaly_window` below 10, lower `anomaly_min_reference`
+accordingly or the AnomalyTracker will never fire.
 
 ---
 
@@ -1921,7 +2147,9 @@ monitor = load_monitor("state.json", parser)
 ```
 
 The state file is plain JSON. Drift trackers are reclassified from
-restored observations on load.
+restored observations on load. Per-tracker window configuration
+(`drift_window`, `anomaly_window`, `correlation_window`) is saved and
+restored automatically.
 
 ### Batch replay
 
@@ -1991,21 +2219,29 @@ default_thresholds:
   ablated: 30
 
 policy:
+
   - name: critical
+
     when: any_ablated
     action: {op: RESTORE, alpha: 1.0}
     priority: 50
+
   - name: maintain
+
     when: any_degraded
     action: {op: RESTORE, alpha: 0.5}
     priority: 10
+
   - name: normal
+
     when: all_intact
     action: {op: NOOP}
     priority: 0
 
 contract:
+
   - name: cpu-healthy
+
     component: cpu
     health: INTACT
 ```
