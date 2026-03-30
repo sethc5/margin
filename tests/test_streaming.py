@@ -6,6 +6,7 @@ from margin import (
     Observation, Health, Confidence, Thresholds, Parser,
     DriftState, DriftDirection, AnomalyState,
     DriftTracker, AnomalyTracker, CorrelationTracker, Monitor,
+    WindowConfig,
 )
 
 
@@ -330,15 +331,16 @@ class TestMonitorFeatures:
         m = Monitor(self._parser(), features={"health", "drift"})
         assert isinstance(m.features, frozenset)
 
-    def test_status_omits_disabled_feature_keys(self):
+    def test_status_always_has_drift_anomaly_correlations_keys(self):
         m = Monitor(self._parser(), features={"health"})
         for i in range(5):
             m.update({"cpu": 50.0 - i, "mem": 70.0},
                      now=t0 + timedelta(seconds=i * 60))
         s = m.status()
-        # drift disabled → "drift" key absent
-        assert "drift" not in s
-        assert "anomaly" not in s
+        # Keys always present — empty dict when feature disabled or no data yet
+        assert "drift" in s and s["drift"] == {}
+        assert "anomaly" in s and s["anomaly"] == {}
+        assert "correlations" in s and s["correlations"] == {}
 
     def test_repr_shows_features_when_partial(self):
         m = Monitor(self._parser(), features={"health", "drift"})
@@ -405,3 +407,44 @@ class TestMonitorResetAnomalyReference:
         m = Monitor(self._parser(), features={"health", "drift"})
         # Should not raise even though anomaly trackers don't exist
         m.reset_anomaly_reference()
+
+
+# -----------------------------------------------------------------------
+# WindowConfig serialization
+# -----------------------------------------------------------------------
+
+class TestWindowConfigSerialization:
+    def test_to_dict_full(self):
+        wc = WindowConfig(drift=10, anomaly=40, correlation=100)
+        d = wc.to_dict()
+        assert d == {"drift": 10, "anomaly": 40, "correlation": 100}
+
+    def test_to_dict_partial(self):
+        wc = WindowConfig(drift=10)
+        d = wc.to_dict()
+        assert d == {"drift": 10}
+        assert "anomaly" not in d
+        assert "correlation" not in d
+
+    def test_to_dict_empty(self):
+        wc = WindowConfig()
+        assert wc.to_dict() == {}
+
+    def test_from_dict_roundtrip(self):
+        wc = WindowConfig(drift=10, anomaly=40, correlation=100)
+        wc2 = WindowConfig.from_dict(wc.to_dict())
+        assert wc2.drift == 10
+        assert wc2.anomaly == 40
+        assert wc2.correlation == 100
+
+    def test_from_dict_partial(self):
+        wc = WindowConfig.from_dict({"drift": 20})
+        assert wc.drift == 20
+        assert wc.anomaly is None
+        assert wc.correlation is None
+
+    def test_from_dict_empty(self):
+        wc = WindowConfig.from_dict({})
+        assert wc.drift is None
+        assert wc.anomaly is None
+        assert wc.correlation is None

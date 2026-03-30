@@ -34,6 +34,26 @@ class WindowConfig:
     anomaly: Optional[int] = None
     correlation: Optional[int] = None
 
+    def to_dict(self) -> dict:
+        """Serialize to plain dict; omits None fields."""
+        d: dict = {}
+        if self.drift is not None:
+            d["drift"] = self.drift
+        if self.anomaly is not None:
+            d["anomaly"] = self.anomaly
+        if self.correlation is not None:
+            d["correlation"] = self.correlation
+        return d
+
+    @classmethod
+    def from_dict(cls, d: dict) -> 'WindowConfig':
+        """Deserialize from a plain dict produced by to_dict()."""
+        return cls(
+            drift=d.get("drift"),
+            anomaly=d.get("anomaly"),
+            correlation=d.get("correlation"),
+        )
+
 from .confidence import Confidence
 from .health import Health, Thresholds, classify
 from .observation import Observation, Expression
@@ -478,18 +498,23 @@ class Monitor:
         return self._step
 
     def status(self) -> dict:
-        """Full snapshot: health + drift + anomaly + correlations."""
+        """Full snapshot: health + drift + anomaly + correlations.
+
+        Keys are always present; disabled features or no-data trackers
+        return empty dicts so callers can index without key-existence checks.
+        """
         d: dict = {
             "step": self._step,
             "expression": self._expression.to_dict() if self._expression else None,
+            "drift": {},
+            "anomaly": {},
+            "correlations": {},
         }
         if "drift" in self.features:
-            d["drift"] = {}
             for name, tracker in self._drift_trackers.items():
                 if tracker.classification:
                     d["drift"][name] = tracker.classification.to_dict()
         if "anomaly" in self.features:
-            d["anomaly"] = {}
             for name, tracker in self._anomaly_trackers.items():
                 if tracker.classification:
                     d["anomaly"][name] = tracker.classification.to_dict()

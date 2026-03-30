@@ -176,3 +176,35 @@ class TestNeedsRecalibrationMany:
         flags = needs_recalibration_many(cal, recent)
         assert flags["cpu"] is True
         assert flags["mem"] is False
+
+
+class TestCalibrateManyReturnParser:
+    def test_return_parser_gives_parser(self):
+        from margin.observation import Parser
+        result = calibrate_many(
+            {"rps": [90.0, 100.0, 110.0], "latency": [48.0, 50.0, 52.0]},
+            polarities={"latency": False},
+            return_parser=True,
+        )
+        assert isinstance(result, Parser)
+
+    def test_return_parser_classifies_correctly(self):
+        result = calibrate_many(
+            {"rps": [100.0] * 10, "latency": [50.0] * 10},
+            polarities={"latency": False},
+            return_parser=True,
+        )
+        from margin.health import Health
+        expr = result.parse({"rps": 95.0, "latency": 52.0})
+        assert expr.health_of("rps") == Health.INTACT
+        assert expr.health_of("latency") == Health.INTACT
+
+    def test_return_parser_false_gives_tuple(self):
+        result = calibrate_many({"rps": [100.0] * 5})
+        assert isinstance(result, tuple)
+        assert len(result) == 2
+
+    def test_return_parser_empty_raises(self):
+        import pytest
+        with pytest.raises(ValueError):
+            calibrate_many({}, return_parser=True)

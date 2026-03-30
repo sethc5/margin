@@ -157,10 +157,10 @@ def calibrate_many(
     use_std: bool = False,
     intact_std_multiplier: float = 1.5,
     ablated_std_multiplier: float = 3.0,
-) -> tuple[dict[str, float], dict[str, Thresholds]]:
+    return_parser: bool = False,
+):
     """
-    Calibrate multiple components at once. Returns (baselines, thresholds)
-    ready to pass directly to Parser().
+    Calibrate multiple components at once.
 
     Args:
         component_values:        {name: [healthy_measurements]}
@@ -171,12 +171,14 @@ def calibrate_many(
         use_std:                 if True, use std-based thresholds (see calibrate())
         intact_std_multiplier:   std deviations for intact threshold (std mode)
         ablated_std_multiplier:  std deviations for ablated threshold (std mode)
+        return_parser:           if True, return a ready-to-use Parser instead of the raw tuple
 
     Returns:
-        (baselines_dict, thresholds_dict) suitable for:
+        When return_parser=False (default): (baselines_dict, thresholds_dict) suitable for:
             Parser(baselines=baselines_dict,
                    thresholds=first_threshold,
                    component_thresholds=thresholds_dict)
+        When return_parser=True: a Parser with baselines and per-component thresholds set
     """
     polarities = polarities or {}
     baselines = {}
@@ -192,6 +194,18 @@ def calibrate_many(
         )
         baselines[name] = result.baseline
         thresholds[name] = result.thresholds
+
+    if return_parser:
+        names = list(thresholds.keys())
+        if not names:
+            raise ValueError("No components to calibrate")
+        default_thresholds = thresholds[names[0]]
+        component_thresholds = {n: t for n, t in thresholds.items() if n != names[0]}
+        return Parser(
+            baselines=baselines,
+            thresholds=default_thresholds,
+            component_thresholds=component_thresholds,
+        )
 
     return baselines, thresholds
 

@@ -9,6 +9,19 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [0.9.4] — 2026-03-30
+
+### Added
+
+- `WindowConfig.to_dict()` / `WindowConfig.from_dict()`: serialize and deserialize per-tracker window configuration; previously no serialization path existed for `WindowConfig`
+- `calibrate_many(..., return_parser=True)`: opt-in to receive a ready-to-use `Parser` instead of the raw `(baselines, thresholds_dict)` tuple; backward-compatible default is `False`
+
+### Changed
+
+- `Monitor.status()`: `"drift"`, `"anomaly"`, and `"correlations"` keys are now always present — empty dict when the feature is disabled or no data has been accumulated yet; callers no longer need key-existence checks before indexing
+
+---
+
 ## [0.9.3] — 2026-03-30
 
 ### Added
