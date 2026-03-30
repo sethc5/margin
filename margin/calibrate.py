@@ -41,6 +41,7 @@ class CalibrationResult:
             "intact": self.thresholds.intact,
             "ablated": self.thresholds.ablated,
             "higher_is_better": self.thresholds.higher_is_better,
+            "active_min": self.thresholds.active_min,
         }
 
 
@@ -50,28 +51,45 @@ def calibrate(
     intact_fraction: float = 0.70,
     ablated_fraction: float = 0.30,
     active_min: float = 0.05,
+    use_std: bool = False,
+    intact_std_multiplier: float = 1.5,
+    ablated_std_multiplier: float = 3.0,
 ) -> CalibrationResult:
     """
     Derive a baseline and thresholds from known-healthy measurements.
 
     Takes a list of measurements collected when the component was operating
-    normally, and derives:
-    - baseline: mean of the measurements
-    - intact threshold: intact_fraction * baseline
-    - ablated threshold: ablated_fraction * baseline
+    normally, and derives thresholds in one of two modes:
 
-    Args:
-        values:           list of healthy-state measurements
-        higher_is_better: polarity
-        intact_fraction:  fraction of baseline for intact threshold (default 0.70)
-        ablated_fraction: fraction of baseline for ablated threshold (default 0.30)
-        active_min:       minimum correction magnitude for "active"
+    **Fraction mode** (default, ``use_std=False``):
+        Thresholds are a fixed fraction of the mean. Simple and predictable,
+        but variance-blind — high-noise and low-noise components produce the
+        same thresholds if their means are equal.
 
-    For higher_is_better=True:
         intact  = baseline * intact_fraction  (e.g. 70% of healthy mean)
         ablated = baseline * ablated_fraction  (e.g. 30% of healthy mean)
 
-    For higher_is_better=False:
+    **Std mode** (``use_std=True``):
+        Thresholds are placed N standard deviations from the mean. Adapts to
+        the variance of the calibration data, so a noisy component gets wider
+        thresholds than a stable one with the same mean.
+
+        intact  = baseline − intact_std_multiplier × std   (default 1.5σ)
+        ablated = baseline − ablated_std_multiplier × std  (default 3.0σ)
+
+        For ``higher_is_better=False``, thresholds are placed above baseline.
+
+    Args:
+        values:                  list of healthy-state measurements
+        higher_is_better:        polarity
+        intact_fraction:         fraction of baseline for intact threshold (fraction mode)
+        ablated_fraction:        fraction of baseline for ablated threshold (fraction mode)
+        active_min:              minimum correction magnitude for "active"
+        use_std:                 if True, derive thresholds from mean ± N×std instead
+        intact_std_multiplier:   std deviations from mean for intact threshold (std mode)
+        ablated_std_multiplier:  std deviations from mean for ablated threshold (std mode)
+
+    For ``higher_is_better=False`` in fraction mode:
         intact  = baseline * (1 + (1 - intact_fraction))   (e.g. 130% of healthy mean)
         ablated = baseline * (1 + (1 - ablated_fraction))   (e.g. 170% of healthy mean)
         This puts the "bad" direction above baseline for lower-is-better metrics.
@@ -84,23 +102,36 @@ def calibrate(
 
     if baseline == 0:
         raise ValueError("Cannot calibrate from zero baseline — thresholds would be degenerate")
-    if higher_is_better and baseline < 0:
+    if higher_is_better and baseline < 0 and not use_std:
         raise ValueError(
             f"Cannot calibrate higher_is_better=True with negative baseline ({baseline}). "
             "Fraction-based thresholds invert for negative values. "
-            "Use higher_is_better=False or shift your measurements to be positive.")
+            "Use higher_is_better=False, shift your measurements to be positive, "
+            "or use use_std=True for std-based thresholds.")
 
     variance = sum((v - baseline) ** 2 for v in values) / max(n - 1, 1)
     std = math.sqrt(variance)
 
-    if higher_is_better:
-        intact = baseline * intact_fraction
-        ablated = baseline * ablated_fraction
+    if use_std:
+        if std == 0:
+            raise ValueError(
+                "Cannot use use_std=True with zero-variance data — all values are identical. "
+                "Use fraction mode (use_std=False) instead.")
+        if higher_is_better:
+            intact = baseline - intact_std_multiplier * std
+            ablated = baseline - ablated_std_multiplier * std
+        else:
+            intact = baseline + intact_std_multiplier * std
+            ablated = baseline + ablated_std_multiplier * std
     else:
-        # For lower-is-better, thresholds are above baseline (unhealthy direction).
-        # Uses abs(baseline) so the math works for both positive and negative baselines.
-        intact = baseline + abs(baseline) * (1 - intact_fraction)
-        ablated = baseline + abs(baseline) * (1 - ablated_fraction)
+        if higher_is_better:
+            intact = baseline * intact_fraction
+            ablated = baseline * ablated_fraction
+        else:
+            # For lower-is-better, thresholds are above baseline (unhealthy direction).
+            # Uses abs(baseline) so the math works for both positive and negative baselines.
+            intact = baseline + abs(baseline) * (1 - intact_fraction)
+            ablated = baseline + abs(baseline) * (1 - ablated_fraction)
 
     thresholds = Thresholds(
         intact=round(intact, 6),
@@ -123,17 +154,23 @@ def calibrate_many(
     intact_fraction: float = 0.70,
     ablated_fraction: float = 0.30,
     active_min: float = 0.05,
+    use_std: bool = False,
+    intact_std_multiplier: float = 1.5,
+    ablated_std_multiplier: float = 3.0,
 ) -> tuple[dict[str, float], dict[str, Thresholds]]:
     """
     Calibrate multiple components at once. Returns (baselines, thresholds)
     ready to pass directly to Parser().
 
     Args:
-        component_values: {name: [healthy_measurements]}
-        polarities:       {name: higher_is_better} (defaults to True)
-        intact_fraction:  fraction of baseline for intact threshold
-        ablated_fraction: fraction of baseline for ablated threshold
-        active_min:       minimum correction magnitude
+        component_values:        {name: [healthy_measurements]}
+        polarities:              {name: higher_is_better} (defaults to True)
+        intact_fraction:         fraction of baseline for intact threshold (fraction mode)
+        ablated_fraction:        fraction of baseline for ablated threshold (fraction mode)
+        active_min:              minimum correction magnitude
+        use_std:                 if True, use std-based thresholds (see calibrate())
+        intact_std_multiplier:   std deviations for intact threshold (std mode)
+        ablated_std_multiplier:  std deviations for ablated threshold (std mode)
 
     Returns:
         (baselines_dict, thresholds_dict) suitable for:
@@ -147,7 +184,12 @@ def calibrate_many(
 
     for name, vals in component_values.items():
         hib = polarities.get(name, True)
-        result = calibrate(vals, hib, intact_fraction, ablated_fraction, active_min)
+        result = calibrate(
+            vals, hib, intact_fraction, ablated_fraction, active_min,
+            use_std=use_std,
+            intact_std_multiplier=intact_std_multiplier,
+            ablated_std_multiplier=ablated_std_multiplier,
+        )
         baselines[name] = result.baseline
         thresholds[name] = result.thresholds
 
@@ -198,6 +240,57 @@ def needs_recalibration(
     return mean_shifted or spread_changed
 
 
+def needs_recalibration_many(
+    calibration_samples: dict[str, list[float]],
+    recent_samples: dict[str, list[float]],
+    mean_shift_threshold: float = 0.2,
+    std_ratio_high: float = 2.0,
+    std_ratio_low: float = 0.5,
+    min_recent: int = 5,
+) -> dict[str, bool]:
+    """
+    Check multiple components for baseline staleness in one call.
+
+    Runs ``needs_recalibration()`` for each component present in both
+    ``calibration_samples`` and ``recent_samples``. Components missing from
+    either dict are omitted from the result.
+
+    Args:
+        calibration_samples:  {component: original healthy measurements}
+        recent_samples:       {component: recent window of observed values}
+        mean_shift_threshold: relative mean shift that triggers recalibration
+        std_ratio_high:       std ratio above which spread is considered changed
+        std_ratio_low:        std ratio below which spread is considered changed
+        min_recent:           minimum recent samples required per component
+
+    Returns:
+        {component: needs_recalibration} for every component present in both dicts.
+
+    Example::
+
+        flags = needs_recalibration_many(
+            calibration_samples={"cpu": cpu_cal, "mem": mem_cal},
+            recent_samples={"cpu": cpu_recent, "mem": mem_recent},
+        )
+        stale = [c for c, flag in flags.items() if flag]
+        if stale:
+            new_parser, _ = recalibrate_parser(parser, {c: recent_samples[c] for c in stale})
+    """
+    result: dict[str, bool] = {}
+    for component in calibration_samples:
+        if component not in recent_samples:
+            continue
+        result[component] = needs_recalibration(
+            calibration_samples[component],
+            recent_samples[component],
+            mean_shift_threshold=mean_shift_threshold,
+            std_ratio_high=std_ratio_high,
+            std_ratio_low=std_ratio_low,
+            min_recent=min_recent,
+        )
+    return result
+
+
 def recalibrate_parser(
     parser: Parser,
     new_healthy_data: dict[str, list[float]],
@@ -206,6 +299,9 @@ def recalibrate_parser(
     intact_fraction: float = 0.70,
     ablated_fraction: float = 0.30,
     active_min: float = 0.05,
+    use_std: bool = False,
+    intact_std_multiplier: float = 1.5,
+    ablated_std_multiplier: float = 3.0,
 ) -> tuple[Parser, dict[str, CalibrationResult]]:
     """
     Return a new Parser with updated baselines for components whose healthy
@@ -215,19 +311,24 @@ def recalibrate_parser(
     in `new_healthy_data` (or not in `components`) keep their existing
     baselines and thresholds unchanged.
 
-    Use after `needs_recalibration()` signals that a component's baseline
-    is stale, or when you have a new labeled window of known-healthy data.
+    Use after `needs_recalibration()` or `needs_recalibration_many()` signals
+    that a component's baseline is stale, or when you have a new labeled window
+    of known-healthy data.
 
     Args:
-        parser:           the existing Parser to replace
-        new_healthy_data: {component: [new_healthy_measurements]}
-        polarities:       {component: higher_is_better} overrides (defaults
-                          to existing parser polarity for each component)
-        components:       allowlist of components to recalibrate; if None,
-                          all components in new_healthy_data are recalibrated
-        intact_fraction:  fraction of baseline for intact threshold
-        ablated_fraction: fraction of baseline for ablated threshold
-        active_min:       minimum correction magnitude
+        parser:                  the existing Parser to replace
+        new_healthy_data:        {component: [new_healthy_measurements]}
+        polarities:              {component: higher_is_better} overrides (defaults
+                                 to existing parser polarity for each component)
+        components:              allowlist of components to recalibrate; if None,
+                                 all components in new_healthy_data are recalibrated
+        intact_fraction:         fraction of baseline for intact threshold (fraction mode)
+        ablated_fraction:        fraction of baseline for ablated threshold (fraction mode)
+        active_min:              inherited from existing parser thresholds; pass only
+                                 to override for recalibrated components
+        use_std:                 if True, use std-based thresholds (see calibrate())
+        intact_std_multiplier:   std deviations for intact threshold (std mode)
+        ablated_std_multiplier:  std deviations for ablated threshold (std mode)
 
     Returns:
         (new_parser, results) where results is {component: CalibrationResult}
@@ -236,11 +337,13 @@ def recalibrate_parser(
     Transition notes:
     - Historical Ledger Observations remain anchored to the baseline that was
       active when they were recorded. Recalibration does not rewrite history.
-    - After recalibrating, rebuild Monitor from the new Parser:
-        save_monitor(old_monitor, "checkpoint.json")  # optional audit trail
-        new_monitor = Monitor(new_parser, drift_window=..., anomaly_window=...,
-                               correlation_window=...)
-    - Per-tracker windows should match the old Monitor's windows for continuity.
+    - After recalibrating, call monitor.reset_anomaly_reference() to flush
+      old-baseline data from AnomalyTracker windows:
+        new_parser, _ = recalibrate_parser(old_parser, new_data)
+        monitor.parser = new_parser
+        monitor.reset_anomaly_reference()   # clears stale reference window
+    - Per-tracker drift windows need not be reset — drift history under the
+      old baseline is simply outweighed as new observations accumulate.
     """
     polarities = polarities or {}
     to_recalibrate = set(components) if components else set(new_healthy_data.keys())
@@ -256,7 +359,14 @@ def recalibrate_parser(
         # Resolve polarity: explicit override → existing parser polarity → True
         existing_t = parser.component_thresholds.get(name) or parser.thresholds
         hib = polarities.get(name, existing_t.higher_is_better)
-        result = calibrate(vals, hib, intact_fraction, ablated_fraction, active_min)
+        # Inherit active_min from existing thresholds unless caller overrides
+        component_active_min = existing_t.active_min if active_min == 0.05 else active_min
+        result = calibrate(
+            vals, hib, intact_fraction, ablated_fraction, component_active_min,
+            use_std=use_std,
+            intact_std_multiplier=intact_std_multiplier,
+            ablated_std_multiplier=ablated_std_multiplier,
+        )
         results[name] = result
         new_baselines[name] = result.baseline
         new_component_thresholds[name] = result.thresholds
@@ -292,6 +402,9 @@ def parser_from_calibration(
     intact_fraction: float = 0.70,
     ablated_fraction: float = 0.30,
     active_min: float = 0.05,
+    use_std: bool = False,
+    intact_std_multiplier: float = 1.5,
+    ablated_std_multiplier: float = 3.0,
 ) -> Parser:
     """
     One-shot: calibrate from historical data and return a ready-to-use Parser.
@@ -301,6 +414,9 @@ def parser_from_calibration(
     """
     baselines, thresh_dict = calibrate_many(
         component_values, polarities, intact_fraction, ablated_fraction, active_min,
+        use_std=use_std,
+        intact_std_multiplier=intact_std_multiplier,
+        ablated_std_multiplier=ablated_std_multiplier,
     )
 
     names = list(thresh_dict.keys())

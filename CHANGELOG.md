@@ -9,6 +9,25 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [0.9.1] — 2026-03-30
+
+### Added
+
+- `needs_recalibration_many(calibration_samples, recent_samples, ...)`: per-component recalibration check — returns `dict[str, bool]`; eliminates manual iteration over components
+- `calibrate()`, `calibrate_many()`, `recalibrate_parser()`, `parser_from_calibration()`: `use_std=False` opt-in — derive thresholds as `baseline ± N×std` instead of fraction-of-mean; adapts to calibration variance; `intact_std_multiplier` (default 1.5) and `ablated_std_multiplier` (default 3.0) control placement
+- `Monitor.reset_anomaly_reference(components=None)`: flush `AnomalyTracker` reference windows after `recalibrate_parser()` to prevent old-baseline data contaminating anomaly classification during warm-up
+- `CalibrationResult.to_dict()`: now includes `active_min` field
+
+### Changed
+
+- `recalibrate_parser()`: inherits `active_min` from the existing parser's thresholds rather than silently defaulting to `0.05`; pass `active_min` explicitly to override
+- `save_monitor()` / `load_monitor()`: round-trip `anomaly_min_reference` — previously lost on reload, silently reverting to default of 10
+- `validate()` check #8: warns when `alpha_from_sigma=True` with no `Constraint` (no floor on sigma-derived alpha), `Constraint(min_alpha=0.0)` (floor present but zero), or both `alpha_from_sigma` and `magnitude_from_sigma` set (sigma² amplification)
+- `SustainHealth.evaluate()`: warns when `ledger.max_records < for_steps` — term can never be MET under this configuration
+- `ReachHealth.evaluate()`: warns when `ledger.max_records < within_steps` — records older than cap are silently dropped, masking past target achievement
+
+---
+
 ## [0.9.0] — 2026-03-30
 
 ### Added

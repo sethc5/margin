@@ -143,6 +143,9 @@ def validate(
     if components:
         _check_component_coverage(policy, components, issues)
 
+    # 8. alpha_from_sigma without a constraint floor
+    _check_alpha_from_sigma(policy, issues)
+
     return ValidationResult(issues=issues)
 
 
@@ -193,6 +196,48 @@ def _check_contract_coverage(
             issues.append(ValidationIssue(
                 "warning", "policy",
                 f"contract requires '{comp}' but no policy rule targets it"))
+
+
+def _check_alpha_from_sigma(policy: Policy, issues: list[ValidationIssue]) -> None:
+    """
+    Warn when alpha_from_sigma=True with no constraint floor.
+
+    When a rule derives alpha from sigma at runtime, the resulting alpha can
+    be arbitrarily small (e.g. 0.001 in a stable period) and fire useless
+    micro-corrections on every step. A Constraint(min_alpha=...) suppresses
+    these; without one there is no floor.
+
+    Also warns when both alpha_from_sigma and magnitude_from_sigma are set —
+    double sigma scaling amplifies corrections non-linearly.
+    """
+    for rule in policy.rules:
+        if not rule.action.alpha_from_sigma:
+            continue
+
+        constraint = rule.constraint or policy.default_constraint
+
+        if constraint is None:
+            issues.append(ValidationIssue(
+                "warning", rule.name,
+                "alpha_from_sigma=True with no constraint — sigma-derived alpha has no "
+                "floor; add Constraint(min_alpha=...) to suppress micro-corrections "
+                "during stable periods, or pair with a drift predicate so the rule only "
+                "fires when sigma is meaningfully elevated",
+            ))
+        elif constraint.min_alpha == 0.0:
+            issues.append(ValidationIssue(
+                "info", rule.name,
+                "alpha_from_sigma=True and constraint.min_alpha=0.0 — corrections will "
+                "fire with alpha≈0 during stable periods; consider raising min_alpha",
+            ))
+
+        if rule.action.alpha_from_sigma and rule.action.magnitude_from_sigma:
+            issues.append(ValidationIssue(
+                "warning", rule.name,
+                "both alpha_from_sigma and magnitude_from_sigma are True — correction "
+                "strength scales as sigma² (alpha × magnitude); this amplifies strongly "
+                "for large deviations and may overcorrect",
+            ))
 
 
 def _check_component_coverage(

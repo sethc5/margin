@@ -22,12 +22,17 @@ from .streaming import Monitor, DriftTracker, AnomalyTracker, CorrelationTracker
 
 def save_monitor(monitor: Monitor, path: str) -> None:
     """Save Monitor state to a JSON file."""
+    # Read anomaly_min_reference from one of the trackers (all share the same value)
+    _any_tracker = next(iter(monitor._anomaly_trackers.values()), None)
+    _anomaly_min_ref = _any_tracker._min_reference if _any_tracker else 10
+
     state = {
         "step": monitor.step,
         "window": monitor.window,
         "drift_window": monitor.drift_window,
         "anomaly_window": monitor.anomaly_window,
         "correlation_window": monitor.correlation_window,
+        "anomaly_min_reference": _anomaly_min_ref,
         "drift": {},
         "anomaly": {},
         "correlation": {
@@ -65,11 +70,13 @@ def load_monitor(path: str, parser: Parser, **kwargs) -> Monitor:
     drift_window = data.get("drift_window", kwargs.pop("drift_window", None))
     anomaly_window = data.get("anomaly_window", kwargs.pop("anomaly_window", None))
     correlation_window = data.get("correlation_window", kwargs.pop("correlation_window", None))
+    anomaly_min_reference = data.get("anomaly_min_reference", kwargs.pop("anomaly_min_reference", 10))
     monitor = Monitor(
         parser, window=window,
         drift_window=drift_window,
         anomaly_window=anomaly_window,
         correlation_window=correlation_window,
+        anomaly_min_reference=anomaly_min_reference,
         **kwargs,
     )
     monitor._step = data.get("step", 0)

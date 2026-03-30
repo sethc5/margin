@@ -11,6 +11,7 @@ maintain a bounded window and update classification on each new value.
 
 from __future__ import annotations
 
+import warnings
 from collections import deque
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -373,6 +374,15 @@ class Monitor:
         self.anomaly_window = cfg.anomaly or anomaly_window or window
         self.correlation_window = cfg.correlation or correlation_window or window
 
+        if anomaly_min_reference > self.anomaly_window:
+            warnings.warn(
+                f"Monitor: anomaly_min_reference={anomaly_min_reference} > "
+                f"anomaly_window={self.anomaly_window} — AnomalyTrackers will never "
+                "classify because the reference window can never be filled; raise "
+                "anomaly_window or lower anomaly_min_reference.",
+                stacklevel=2,
+            )
+
         self._expression: Optional[Expression] = None
         self._step = 0
 
@@ -471,6 +481,23 @@ class Monitor:
         if self._correlation_tracker.matrix:
             d["correlations"] = self._correlation_tracker.matrix.to_dict()
         return d
+
+    def reset_anomaly_reference(self, components: Optional[list[str]] = None) -> None:
+        """
+        Clear AnomalyTracker reference windows for the specified components.
+
+        Call after recalibrate_parser() to prevent old-baseline data from
+        contaminating anomaly classification during the warm-up period that
+        follows recalibration. The trackers will return None classifications
+        until they accumulate min_reference new values under the new baseline.
+
+        Args:
+            components: names to reset; None resets all components.
+        """
+        targets = components or list(self._anomaly_trackers.keys())
+        for name in targets:
+            if name in self._anomaly_trackers:
+                self._anomaly_trackers[name].reset()
 
     def reset(self) -> None:
         self._expression = None

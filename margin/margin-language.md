@@ -809,14 +809,23 @@ externally via your Monitor's anomaly tracker.
 Or use the combined helper:
 
 ```python
-from margin import needs_recalibration
+from margin import needs_recalibration, needs_recalibration_many
 
+# Single component
 if needs_recalibration(calibration_samples, recent_window):
     # Signal A or B has fired — consider recalibrating
+
+# Multiple components at once — returns {component: bool}
+flags = needs_recalibration_many(
+    calibration_samples={"cpu": cpu_cal, "mem": mem_cal},
+    recent_samples={"cpu": cpu_recent, "mem": mem_recent},
+)
+stale = [c for c, flag in flags.items() if flag]
 ```
 
-`needs_recalibration()` checks signals A and B. Signal C must be checked
-against `monitor.anomaly(component).state`.
+Both functions check signals A and B. Signal C must be checked
+against `monitor.anomaly(component).state`. Components missing from
+either dict are omitted from `needs_recalibration_many()` results.
 
 ### `recalibrate_parser(parser, new_healthy_data, ...) -> (Parser, results)`
 
@@ -857,7 +866,8 @@ if needs_recalibration(original_samples["throughput"], recent_window):
 | `components` | `None` | Allowlist — if None, all keys in `new_healthy_data` are recalibrated |
 | `intact_fraction` | `0.70` | Same semantics as `calibrate()` |
 | `ablated_fraction` | `0.30` | Same semantics as `calibrate()` |
-| `active_min` | `0.05` | Same semantics as `calibrate()` |
+| `use_std` | `False` | If True, use `baseline ± N×std` thresholds instead of fraction-of-mean |
+| `active_min` | inherited | Inherited from the existing parser's thresholds; pass explicitly to override |
 
 ### Transition semantics
 
@@ -867,12 +877,21 @@ embedded `.baseline` field set at parse-time. Recalibration does not rewrite
 history. This is correct: the Ledger is an immutable record of what was
 observed under which baseline.
 
-**Monitor tracker windows** — after recalibrating, rebuild `Monitor` from
-scratch around the new `Parser` (see example above). The old Monitor's drift
-and anomaly windows contain observations stamped with the old baseline. Accept
-a window-length warm-up period during which classifications may reflect
-mixed-baseline data, or use `save_monitor()` / `load_monitor()` to checkpoint
-before rebuilding.
+**Monitor tracker windows** — after recalibrating, update the Monitor's parser
+and flush the anomaly reference windows so old-baseline values do not
+contaminate classifications during warm-up:
+
+```python
+new_parser, _ = recalibrate_parser(old_parser, new_data)
+monitor.parser = new_parser
+monitor.reset_anomaly_reference()   # clears AnomalyTracker windows
+# AnomalyTrackers return None for anomaly_min_reference steps, then reclassify
+# against the new baseline. DriftTracker windows need not be reset — old
+# observations are outweighed as new ones accumulate.
+```
+
+Use `save_monitor()` / `load_monitor()` to checkpoint the old state before
+rebuilding if you want an audit trail of the transition.
 
 **Marking the boundary** — fire an event on the EventBus so downstream
 consumers can identify the recalibration point in the audit trail:
@@ -1876,7 +1895,8 @@ This is the layer that turns margin from monitoring into decision support.
 
 ## The full loop
 
-The six stages form a complete typed loop:
+The correction loop has six stages; `full_step()` adds a seventh —
+goal feasibility — via `Intent.evaluate()`:
 
 ```text
         ┌─────────────────────────────────────────────┐
@@ -1918,6 +1938,12 @@ The six stages form a complete typed loop:
   6. RECORD (ledger)                                  │
 
      step 5: [api:RECOVERING(-0.2σ) → RESTORE(α=0.9)]│
+        │                                             │
+        ▼                                             │
+
+  7. FEASIBILITY (intent)           [optional]        │
+
+     FEASIBLE — ETA to violation: 42 steps            │
         │                                             │
         └─────────── next step ───────────────────────┘
 ```

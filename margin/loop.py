@@ -205,13 +205,13 @@ def run(
 @dataclass
 class FullStepResult:
     """
-    Complete output of one full evaluation across all 8 layers.
+    Complete output of one full_step() evaluation.
 
-    step:       policy/contract/causal evaluation
-    drift:      per-component drift classifications
-    anomaly:    per-component anomaly classifications
+    step:         policy/contract/causal evaluation
+    drift:        per-component drift classifications
+    anomaly:      per-component anomaly classifications
     correlations: discovered component correlations
-    intent:     goal feasibility (if intent provided)
+    intent:       goal feasibility (if intent provided)
     """
     step: StepResult
     drift: dict = field(default_factory=dict)
@@ -287,7 +287,7 @@ def full_step(
         intent:    Intent goal (optional)
         now:       current timestamp (optional)
 
-    Returns FullStepResult with all 8 layers evaluated.
+    Returns FullStepResult with all stages evaluated.
     """
     from datetime import datetime
 

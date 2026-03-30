@@ -14,6 +14,7 @@ Contracts express:
 
 from __future__ import annotations
 
+import warnings
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Optional
@@ -108,6 +109,14 @@ class ReachHealth(ContractTerm):
     within_steps: int
 
     def evaluate(self, ledger: Ledger, expr: Optional[Expression] = None) -> TermResult:
+        if ledger.max_records is not None and ledger.max_records < self.within_steps:
+            warnings.warn(
+                f"ReachHealth '{self.name}': ledger.max_records={ledger.max_records} < "
+                f"within_steps={self.within_steps} — records older than max_records are "
+                "dropped; if the target was reached before the cap, this term will show "
+                "PENDING rather than MET. Increase max_records or reduce within_steps.",
+                stacklevel=2,
+            )
         recent = ledger.for_component(self.component).last_n(self.within_steps)
         if len(recent) < 1:
             return TermResult(self.name, TermStatus.PENDING, "no records yet")
@@ -142,6 +151,13 @@ class SustainHealth(ContractTerm):
     or_better: bool = True
 
     def evaluate(self, ledger: Ledger, expr: Optional[Expression] = None) -> TermResult:
+        if ledger.max_records is not None and ledger.max_records < self.for_steps:
+            warnings.warn(
+                f"SustainHealth '{self.name}': ledger.max_records={ledger.max_records} < "
+                f"for_steps={self.for_steps} — this term can never be MET; "
+                "increase Ledger(max_records=...) or reduce SustainHealth(for_steps=...).",
+                stacklevel=2,
+            )
         recent = ledger.for_component(self.component).last_n(self.for_steps)
         if len(recent) < self.for_steps:
             return TermResult(self.name, TermStatus.PENDING,

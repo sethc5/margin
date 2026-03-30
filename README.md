@@ -58,7 +58,7 @@ Then the correction loop:
 - **CLI** — `python -m margin status`, `monitor`, `replay` — no Python code required
 - **Ledger** — full audit trail of every correction, serializable, replayable
 
-All eight layers in one call:
+All stages in one call:
 
 ```python
 from margin import full_step
@@ -102,17 +102,19 @@ parser = parser_from_calibration(
 )
 ```
 
-## Five layers
+## Architecture
 
 | Layer | Question | Key types |
 |---|---|---|
 | **Foundation** | What was measured? | `Health`, `Observation`, `Expression`, `UncertainValue` |
 | **Observability** | What changed? When will it cross? | `diff()`, `forecast()`, `track()`, `calibrate()` |
+| **Streaming** | Is it drifting or anomalous? | `Monitor`, `DriftTracker`, `AnomalyTracker`, `CorrelationTracker` |
 | **Policy** | What should we do? | `PolicyRule`, `Action`, `Constraint`, `Escalation` |
 | **Contract** | Are we meeting our goals? | `HealthTarget`, `SustainHealth`, `RecoveryThreshold` |
 | **Causal** | Why did this happen? | `CausalGraph`, `CausalLink`, `Explanation` |
+| **Intent** | Can we still get there? | `Intent`, `Feasibility`, `IntentResult` |
 
-Plus `step()` and `run()` to orchestrate all five in one call.
+`full_step()` orchestrates all seven in one call.
 
 ## Domain adapters
 

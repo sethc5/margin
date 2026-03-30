@@ -31,7 +31,8 @@ from .ledger import Record, Ledger
 from .bridge import observe, observe_many, delta, to_uncertain
 from .calibrate import (
     CalibrationResult, calibrate, calibrate_many,
-    parser_from_calibration, recalibrate_parser, needs_recalibration,
+    parser_from_calibration, recalibrate_parser,
+    needs_recalibration, needs_recalibration_many,
 )
 from .composite import CompositeObservation, AggregateStrategy
 from .diff import ComponentChange, Diff, diff
@@ -128,6 +129,7 @@ __all__ = [
     # Observability
     "observe", "observe_many", "delta", "to_uncertain",
     "CalibrationResult", "calibrate", "calibrate_many", "parser_from_calibration",
+    "recalibrate_parser", "needs_recalibration", "needs_recalibration_many",
     "CompositeObservation", "AggregateStrategy",
     "ComponentChange", "Diff", "diff",
     "AnomalyState", "ANOMALY_SEVERITY", "AnomalyClassification",
@@ -174,7 +176,7 @@ __all__ = [
     # Intent
     "Feasibility", "Requirement", "RiskFactor", "IntentResult", "Intent",
     # Streaming
-    "DriftTracker", "AnomalyTracker", "CorrelationTracker", "Monitor",
+    "DriftTracker", "AnomalyTracker", "CorrelationTracker", "Monitor", "WindowConfig",
     # Config
     "from_config", "load_config",
     # Persistence
