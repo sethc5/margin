@@ -194,4 +194,42 @@ static func classify(
 	if was_unhealthy and now_closer:
 		return Result.new(State.REVERTING, direction, norm_slope, r_sq, n)
 
+	# Acceleration: compare slope of first half vs second half.
+	# If the second half slope is significantly larger in magnitude, it's accelerating;
+	# if significantly smaller, it's decelerating.
+	if n >= 6:
+		var mid := n / 2
+		var slope_first := _half_slope(ys, 0, mid)
+		var slope_second := _half_slope(ys, mid, n)
+		# Normalise for polarity
+		var ns1 := slope_first if higher_is_better else -slope_first
+		var ns2 := slope_second if higher_is_better else -slope_second
+		var accel := ns2 - ns1
+		var threshold := 0.3 * absf(norm_slope)
+		if threshold > 0:
+			if accel > threshold:
+				return Result.new(State.ACCELERATING, direction, norm_slope, r_sq, n)
+			if accel < -threshold:
+				return Result.new(State.DECELERATING, direction, norm_slope, r_sq, n)
+
 	return Result.new(State.DRIFTING, direction, norm_slope, r_sq, n)
+
+
+## Compute slope over a subarray slice [from_i, to_i).
+static func _half_slope(ys: Array, from_i: int, to_i: int) -> float:
+	var n := to_i - from_i
+	if n < 2:
+		return 0.0
+	var mean_x := float(n - 1) / 2.0
+	var mean_y := 0.0
+	for i in range(n):
+		mean_y += ys[from_i + i]
+	mean_y /= n
+	var ss_xx := 0.0
+	var ss_xy := 0.0
+	for i in range(n):
+		ss_xx += (float(i) - mean_x) * (float(i) - mean_x)
+		ss_xy += (float(i) - mean_x) * (ys[from_i + i] - mean_y)
+	if ss_xx == 0:
+		return 0.0
+	return ss_xy / ss_xx

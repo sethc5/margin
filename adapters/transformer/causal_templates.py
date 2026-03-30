@@ -71,7 +71,6 @@ def make_circuit_graph(
     if primary and primary in circuits:
         for c in circuits:
             if c != primary:
-                graph.add(graph.links[-1] if graph.links else None)  # placeholder
                 # Add CORRELATES link — auto-correlation will refine
                 from margin.causal import CausalLink
                 graph.add(CausalLink(

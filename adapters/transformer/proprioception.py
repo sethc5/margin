@@ -204,7 +204,7 @@ def layer0_intent(deadline_seconds: float = 60.0) -> Intent:
     """
     return (Intent(goal="Layer 0: proprioceptive channel operational", deadline_seconds=deadline_seconds)
             .require("confidence", min_value=0.1, min_health=Health.DEGRADED)
-            .require("epistemic_uncertainty", min_value=0.7, min_health=Health.DEGRADED)
+            .require("epistemic_uncertainty", min_health=Health.DEGRADED)  # lower is better — health gate handles polarity
             .require("coherence", min_health=Health.DEGRADED, critical=False))
 
 
