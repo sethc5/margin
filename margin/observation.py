@@ -343,6 +343,13 @@ class Parser:
 
         observations = []
         for name, val in values.items():
+            if name not in self.baselines:
+                warnings.warn(
+                    f"Parser.parse: component {name!r} has no baseline — "
+                    "using the observed value as baseline (sigma=0). "
+                    "Add it to Parser.baselines or check for a typo.",
+                    stacklevel=2,
+                )
             baseline = self.baselines.get(name, val)
             conf = confidences.get(name, Confidence.MODERATE)
             ct = self._thresholds_for(name)

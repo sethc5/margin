@@ -19,8 +19,8 @@ from typing import Optional
 
 from .health import Thresholds
 from .observation import Parser, Op
-from .policy.core import Action, PolicyRule, Policy
-from .contract import Contract, HealthTarget, Health
+from .policy.core import Action, PolicyRule, Policy, Constraint, Escalation, EscalationLevel
+from .contract import Contract, HealthTarget, Health, contract_term_from_dict
 from .predicates import (
     any_health, all_health, any_degraded, any_correction,
     confidence_below, sigma_below, component_health,
@@ -154,11 +154,30 @@ def from_config(config: dict) -> dict:
                 alpha=action_spec.get("alpha", 0.5),
                 magnitude=action_spec.get("magnitude", 1.0),
             )
+            constraint = None
+            if "constraint" in spec:
+                cs = spec["constraint"]
+                constraint = Constraint(
+                    max_alpha=cs.get("max_alpha", 1.0),
+                    min_alpha=cs.get("min_alpha", 0.0),
+                    cooldown_steps=cs.get("cooldown_steps", 0),
+                    max_per_window=cs.get("max_per_window", 0),
+                    window_steps=cs.get("window_steps", 0),
+                )
+            escalation = None
+            if "escalation" in spec:
+                es = spec["escalation"]
+                escalation = Escalation(
+                    level=EscalationLevel(es.get("level", "LOG")),
+                    reason=es.get("reason", ""),
+                )
             rules.append(PolicyRule(
                 name=spec["name"],
                 predicate=predicate,
                 action=action,
                 priority=spec.get("priority", 0),
+                constraint=constraint,
+                escalation=escalation,
             ))
         result["policy"] = Policy(name=config.get("name", "config-policy"), rules=rules)
 
@@ -167,11 +186,19 @@ def from_config(config: dict) -> dict:
     if contract_specs:
         terms = []
         for spec in contract_specs:
-            terms.append(HealthTarget(
-                name=spec["name"],
-                component=spec["component"],
-                target=Health(spec.get("health", "INTACT")),
-            ))
+            term_type = spec.get("type", "health_target")
+            if term_type == "health_target" and "type" not in spec:
+                # backward-compatible: old configs without explicit type field
+                terms.append(HealthTarget(
+                    name=spec["name"],
+                    component=spec["component"],
+                    target=Health(spec.get("health", "INTACT")),
+                ))
+            else:
+                # normalise: config may use "health" instead of "target"
+                if "health" in spec and "target" not in spec:
+                    spec = dict(spec, target=spec["health"])
+                terms.append(contract_term_from_dict(spec))
         result["contract"] = Contract(
             name=config.get("contract_name", "config-contract"),
             terms=terms,

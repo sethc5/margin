@@ -44,6 +44,13 @@ class CalibrationResult:
             "active_min": self.thresholds.active_min,
         }
 
+    def __repr__(self) -> str:
+        t = self.thresholds
+        polarity = "↑" if t.higher_is_better else "↓"
+        return (f"CalibrationResult(baseline={self.baseline:.4g}, "
+                f"intact={t.intact:.4g}, ablated={t.ablated:.4g}, "
+                f"std={self.std:.4g}, n={self.n_samples}, {polarity})")
+
 
 def calibrate(
     values: list[float],

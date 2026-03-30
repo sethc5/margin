@@ -184,3 +184,40 @@ class TestRun:
     def test_repr(self):
         result = step(_expr(_obs("x", Health.DEGRADED)), self._make_policy())
         assert "CORRECT" in repr(result)
+
+
+class TestFullStepThreading:
+    def _monitor(self):
+        from margin import Monitor, Parser, Thresholds
+        return Monitor(Parser(
+            baselines={"cpu": 50.0},
+            thresholds=Thresholds(intact=40.0, ablated=10.0),
+        ))
+
+    def _policy(self):
+        from margin.policy.core import Policy, PolicyRule, Action
+        from margin.observation import Op
+        from margin.predicates import any_degraded
+        return Policy("p", [PolicyRule("r", any_degraded(), Action("*", Op.RESTORE, 0.5))])
+
+    def test_full_step_confidences_threaded(self):
+        from margin import full_step
+        from margin.confidence import Confidence
+        m = self._monitor()
+        result = full_step(m, {"cpu": 20.0}, self._policy(),
+                           confidences={"cpu": Confidence.HIGH})
+        obs = result.expression.observations[0]
+        assert obs.confidence == Confidence.HIGH
+
+    def test_full_step_label_threaded(self):
+        from margin import full_step
+        m = self._monitor()
+        result = full_step(m, {"cpu": 20.0}, self._policy(), label="step-A")
+        assert result.expression.label == "step-A"
+
+    def test_full_step_provenance_threaded(self):
+        from margin import full_step
+        m = self._monitor()
+        result = full_step(m, {"cpu": 20.0}, self._policy(), provenance=["source-X"])
+        obs = result.expression.observations[0]
+        assert "source-X" in obs.provenance

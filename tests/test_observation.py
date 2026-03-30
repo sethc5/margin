@@ -268,3 +268,41 @@ class TestHealthLabel:
         )
         d = obs.to_dict()
         assert "health_label" not in d
+
+
+class TestParserUnknownComponent:
+    def test_warns_on_unknown_component(self):
+        import warnings
+        p = Parser(
+            baselines={"cpu": 50.0},
+            thresholds=Thresholds(intact=40.0, ablated=10.0),
+        )
+        with warnings.catch_warnings(record=True) as w:
+            warnings.simplefilter("always")
+            p.parse({"cpuu": 48.0})  # typo
+        assert len(w) == 1
+        assert "cpuu" in str(w[0].message)
+        assert "no baseline" in str(w[0].message)
+
+    def test_no_warning_for_known_component(self):
+        import warnings
+        p = Parser(
+            baselines={"cpu": 50.0},
+            thresholds=Thresholds(intact=40.0, ablated=10.0),
+        )
+        with warnings.catch_warnings(record=True) as w:
+            warnings.simplefilter("always")
+            p.parse({"cpu": 48.0})
+        assert len(w) == 0
+
+    def test_unknown_component_gets_sigma_zero(self):
+        p = Parser(
+            baselines={"cpu": 50.0},
+            thresholds=Thresholds(intact=40.0, ablated=10.0),
+        )
+        import warnings
+        with warnings.catch_warnings(record=True):
+            warnings.simplefilter("always")
+            expr = p.parse({"unknown": 100.0})
+        obs = expr.observations[0]
+        assert obs.sigma == 0.0

@@ -181,3 +181,66 @@ class TestLoadConfig:
         assert "policy" in result
         assert "contract" in result
         Path(f.name).unlink()
+
+
+class TestConfigConstraintEscalation:
+    def test_constraint_from_config(self):
+        from margin import from_config
+        cfg = {
+            "components": {"cpu": {"baseline": 50.0, "intact": 40.0, "ablated": 10.0}},
+            "policy": [{
+                "name": "throttle",
+                "when": "any_degraded",
+                "action": {"op": "RESTORE", "alpha": 0.5},
+                "constraint": {"min_alpha": 0.1, "cooldown_steps": 3},
+            }],
+        }
+        result = from_config(cfg)
+        rule = result["policy"].rules[0]
+        assert rule.constraint is not None
+        assert rule.constraint.min_alpha == 0.1
+        assert rule.constraint.cooldown_steps == 3
+
+    def test_escalation_from_config(self):
+        from margin import from_config
+        cfg = {
+            "components": {"cpu": {"baseline": 50.0, "intact": 40.0, "ablated": 10.0}},
+            "policy": [{
+                "name": "alert",
+                "when": "any_ablated",
+                "action": {"op": "NOOP"},
+                "escalation": {"level": "ALERT", "reason": "cpu failed"},
+            }],
+        }
+        result = from_config(cfg)
+        rule = result["policy"].rules[0]
+        assert rule.escalation is not None
+        assert rule.escalation.reason == "cpu failed"
+
+    def test_contract_reach_health_from_config(self):
+        from margin import from_config
+        from margin.contract import ReachHealth
+        cfg = {
+            "components": {"cpu": {"baseline": 50.0, "intact": 40.0, "ablated": 10.0}},
+            "contract": [{
+                "type": "reach_health",
+                "name": "recovery",
+                "component": "cpu",
+                "target": "INTACT",
+                "within_steps": 10,
+            }],
+        }
+        result = from_config(cfg)
+        term = result["contract"].terms[0]
+        assert isinstance(term, ReachHealth)
+        assert term.within_steps == 10
+
+    def test_contract_backward_compat_no_type(self):
+        from margin import from_config
+        from margin.contract import HealthTarget
+        cfg = {
+            "components": {"cpu": {"baseline": 50.0, "intact": 40.0, "ablated": 10.0}},
+            "contract": [{"name": "ok", "component": "cpu", "health": "INTACT"}],
+        }
+        result = from_config(cfg)
+        assert isinstance(result["contract"].terms[0], HealthTarget)

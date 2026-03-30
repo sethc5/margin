@@ -54,6 +54,12 @@ class WindowConfig:
             correlation=d.get("correlation"),
         )
 
+    def __repr__(self) -> str:
+        parts = [f"{k}={v}" for k, v in
+                 [("drift", self.drift), ("anomaly", self.anomaly), ("correlation", self.correlation)]
+                 if v is not None]
+        return f"WindowConfig({', '.join(parts)})" if parts else "WindowConfig()"
+
 from .confidence import Confidence
 from .health import Health, Thresholds, classify
 from .observation import Observation, Expression
@@ -438,6 +444,8 @@ class Monitor:
         values: dict[str, float],
         label: str = "",
         now: Optional[datetime] = None,
+        confidences=None,
+        provenance=None,
     ) -> Expression:
         """
         Process new measurements: classify health, update drift, check anomalies.
@@ -447,7 +455,10 @@ class Monitor:
         now = now or datetime.now()
 
         # Health classification via Parser
-        self._expression = self.parser.parse(values, label=label, step=self._step)
+        self._expression = self.parser.parse(
+            values, label=label, step=self._step,
+            confidences=confidences, provenance=provenance,
+        )
         self._step += 1
 
         # Update per-component trackers

@@ -9,6 +9,23 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [0.9.6] — 2026-03-30
+
+### Added
+
+- `full_step(..., confidences, provenance, label)`: per-component confidence levels, provenance lineage, and expression label now thread through to `Monitor.update()` → `Parser.parse()` — previously these were silently dropped when using `full_step()`
+- `Monitor.update(..., confidences, provenance)`: same parameters now accepted and forwarded to `Parser.parse()`
+- `from_config()` policy rules: `constraint` and `escalation` keys now supported in YAML/JSON config — `cooldown_steps`, `min_alpha`, `max_alpha`, `max_per_window`, `window_steps`, escalation `level` and `reason` all configurable without writing Python
+- `from_config()` contract terms: all five contract term types now deserializable from config via `contract_term_from_dict`; old configs without a `"type"` key remain backward-compatible
+- `__repr__` on `CalibrationResult`, `WindowConfig`, `Action`, `Constraint`, `HealthTarget`, `ReachHealth`, `SustainHealth`, `RecoveryThreshold`, `NoHarmful`
+
+### Changed
+
+- `Parser.parse()`: emits `warnings.warn` when a component has no entry in `Parser.baselines` — previously the observed value silently became its own baseline (sigma=0, INTACT); now surfaces the typo/misconfiguration
+- `Action.resolve()`: emits `warnings.warn` when a named `target` is not found in the current expression — previously produced a `Correction` referencing a nonexistent component with no signal to the caller
+
+---
+
 ## [0.9.5] — 2026-03-30
 
 ### Added

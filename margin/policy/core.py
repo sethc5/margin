@@ -7,6 +7,7 @@ constrained Correction or Escalation.
 
 from __future__ import annotations
 
+import warnings
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Callable, Optional, Union
@@ -97,6 +98,13 @@ class Action:
                 if o.name == target_name:
                     target_obs = o
                     break
+            if target_obs is None:
+                warnings.warn(
+                    f"Action.resolve: target {self.target!r} not found in expression "
+                    f"({[o.name for o in expr.observations]}). "
+                    "Correction will reference a nonexistent component.",
+                    stacklevel=3,
+                )
 
         alpha = self.alpha
         if self.alpha_from_sigma and target_obs:
@@ -130,6 +138,9 @@ class Action:
             alpha_from_sigma=d.get("alpha_from_sigma", False),
             magnitude_from_sigma=d.get("magnitude_from_sigma", False),
         )
+
+    def __repr__(self) -> str:
+        return f"Action(target={self.target!r}, op={self.op.value}, alpha={self.alpha})"
 
 
 # -----------------------------------------------------------------------
@@ -179,6 +190,18 @@ class Constraint:
     @classmethod
     def from_dict(cls, d: dict) -> Constraint:
         return cls(**{k: d[k] for k in ("max_alpha", "min_alpha", "cooldown_steps", "max_per_window", "window_steps") if k in d})
+
+    def __repr__(self) -> str:
+        parts = []
+        if self.min_alpha > 0.0:
+            parts.append(f"min_alpha={self.min_alpha}")
+        if self.max_alpha < 1.0:
+            parts.append(f"max_alpha={self.max_alpha}")
+        if self.cooldown_steps > 0:
+            parts.append(f"cooldown={self.cooldown_steps}")
+        if self.max_per_window > 0:
+            parts.append(f"max_per_window={self.max_per_window}")
+        return f"Constraint({', '.join(parts)})" if parts else "Constraint()"
 
 
 # -----------------------------------------------------------------------

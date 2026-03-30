@@ -281,6 +281,9 @@ def full_step(
     contract: Optional[Contract] = None,
     intent: Optional[object] = None,
     now=None,
+    confidences=None,
+    provenance=None,
+    label: str = "",
 ) -> FullStepResult:
     """
     Run ALL layers in one call:
@@ -305,7 +308,8 @@ def full_step(
     now = now or datetime.now()
 
     # Layer 1-4: health + drift + anomaly + correlation
-    expr = monitor.update(values, now=now)
+    expr = monitor.update(values, now=now, label=label,
+                          confidences=confidences, provenance=provenance)
 
     # Layer 5-7: explain + decide + contract
     step_result = step(expr, policy, ledger, graph, contract)

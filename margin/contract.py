@@ -92,6 +92,9 @@ class HealthTarget(ContractTerm):
         return {"type": "health_target", "name": self.name, "component": self.component,
                 "target": self.target.value, "or_better": self.or_better}
 
+    def __repr__(self) -> str:
+        return f"HealthTarget({self.name!r}, {self.component}={self.target.value})"
+
 
 @dataclass
 class ReachHealth(ContractTerm):
@@ -137,6 +140,9 @@ class ReachHealth(ContractTerm):
     def to_dict(self) -> dict:
         return {"type": "reach_health", "name": self.name, "component": self.component,
                 "target": self.target.value, "within_steps": self.within_steps}
+
+    def __repr__(self) -> str:
+        return f"ReachHealth({self.name!r}, {self.component}={self.target.value} within {self.within_steps})"
 
 
 @dataclass
@@ -184,6 +190,9 @@ class SustainHealth(ContractTerm):
                 "target": self.target.value, "for_steps": self.for_steps,
                 "or_better": self.or_better}
 
+    def __repr__(self) -> str:
+        return f"SustainHealth({self.name!r}, {self.component}={self.target.value} for {self.for_steps})"
+
 
 @dataclass
 class RecoveryThreshold(ContractTerm):
@@ -212,6 +221,9 @@ class RecoveryThreshold(ContractTerm):
         return {"type": "recovery_threshold", "name": self.name,
                 "min_recovery": self.min_recovery, "over_steps": self.over_steps}
 
+    def __repr__(self) -> str:
+        return f"RecoveryThreshold({self.name!r}, min={self.min_recovery} over {self.over_steps})"
+
 
 @dataclass
 class NoHarmful(ContractTerm):
@@ -230,6 +242,9 @@ class NoHarmful(ContractTerm):
 
     def to_dict(self) -> dict:
         return {"type": "no_harmful", "name": self.name, "over_steps": self.over_steps}
+
+    def __repr__(self) -> str:
+        return f"NoHarmful({self.name!r}, over {self.over_steps})"
 
 
 _TERM_TYPES: dict = {

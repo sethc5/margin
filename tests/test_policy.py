@@ -379,3 +379,36 @@ class TestSerialization:
         d = {"name": "test", "rules": [{"name": "x", "action": {"op": "RESTORE"}}]}
         with pytest.raises(ValueError, match="No predicate"):
             Policy.from_dict(d, {})
+
+
+class TestActionResolveUnknownTarget:
+    def test_warns_when_named_target_not_in_expression(self):
+        import warnings
+        from margin.policy.core import Policy, PolicyRule, Action
+        from margin.observation import Op, Parser, Expression
+        from margin.health import Thresholds
+        from margin.predicates import any_degraded
+
+        p = Parser(baselines={"cpu": 50.0}, thresholds=Thresholds(intact=40.0, ablated=10.0))
+        expr = p.parse({"cpu": 20.0})
+
+        action = Action(target="nonexistent", op=Op.RESTORE, alpha=0.5)
+        with warnings.catch_warnings(record=True) as w:
+            warnings.simplefilter("always")
+            action.resolve(expr)
+        assert any("nonexistent" in str(x.message) for x in w)
+
+    def test_no_warning_when_target_exists(self):
+        import warnings
+        from margin.policy.core import Action
+        from margin.observation import Op, Parser
+        from margin.health import Thresholds
+
+        p = Parser(baselines={"cpu": 50.0}, thresholds=Thresholds(intact=40.0, ablated=10.0))
+        expr = p.parse({"cpu": 20.0})
+
+        action = Action(target="cpu", op=Op.RESTORE, alpha=0.5)
+        with warnings.catch_warnings(record=True) as w:
+            warnings.simplefilter("always")
+            action.resolve(expr)
+        assert len(w) == 0
