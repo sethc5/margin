@@ -95,9 +95,9 @@ class Fingerprint:
     def items(self):
         return self._stats.items()
 
-    def values_dict(self) -> dict[str, dict]:
-        """Return the underlying stats dict (for callers that need a plain dict)."""
-        return dict(self._stats)
+    def values(self):
+        """Return stat dicts for all components (mirrors dict.values())."""
+        return self._stats.values()
 
     def get(self, key: str, default=None):
         return self._stats.get(key, default)

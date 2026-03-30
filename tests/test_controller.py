@@ -81,6 +81,12 @@ class TestFingerprintDictCompat:
         pairs = dict(fp.items())
         assert "cpu" in pairs
 
+    def test_values(self):
+        fp = _make_fp([1.0, 2.0])
+        vals = list(fp.values())
+        assert len(vals) == 1
+        assert "mean" in vals[0]
+
 
 class TestFingerprintRobustTarget:
     def test_median_vs_mean(self):
