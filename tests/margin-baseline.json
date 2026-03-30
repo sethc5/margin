@@ -1,0 +1,68 @@
+{
+  "confidence": "moderate",
+  "label": "margin",
+  "step": null,
+  "observations": [
+    {
+      "name": "pass_rate",
+      "health": "INTACT",
+      "value": 1.0,
+      "baseline": 1.0,
+      "sigma": 0.0,
+      "confidence": "moderate",
+      "higher_is_better": true,
+      "provenance": []
+    },
+    {
+      "name": "flake_rate",
+      "health": "INTACT",
+      "value": 0.0,
+      "baseline": 0.0,
+      "sigma": 0.0,
+      "confidence": "moderate",
+      "higher_is_better": false,
+      "provenance": []
+    },
+    {
+      "name": "skip_rate",
+      "health": "INTACT",
+      "value": 0.0,
+      "baseline": 0.0,
+      "sigma": 0.0,
+      "confidence": "moderate",
+      "higher_is_better": false,
+      "provenance": []
+    },
+    {
+      "name": "duration_seconds",
+      "health": "INTACT",
+      "value": 0.8012666702270508,
+      "baseline": 60.0,
+      "sigma": 0.9866455554962158,
+      "confidence": "moderate",
+      "higher_is_better": false,
+      "provenance": []
+    },
+    {
+      "name": "new_failures",
+      "health": "INTACT",
+      "value": 0.0,
+      "baseline": 0.0,
+      "sigma": 0.0,
+      "confidence": "moderate",
+      "higher_is_better": false,
+      "provenance": []
+    },
+    {
+      "name": "mean_test_duration",
+      "health": "INTACT",
+      "value": 0.00028308110137624705,
+      "baseline": 0.1,
+      "sigma": 0.9971691889862375,
+      "confidence": "moderate",
+      "higher_is_better": false,
+      "provenance": []
+    }
+  ],
+  "corrections": []
+}

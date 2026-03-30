@@ -9,6 +9,16 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [0.9.9] — 2026-03-30
+
+### Added
+
+- `tests/conftest.py`: margin's own test suite now uses the pytest plugin for self-monitoring — every `pytest` run prints a typed health snapshot of `pass_rate`, `new_failures`, `skip_rate`, `duration_seconds`, and `mean_test_duration`; supports `--margin-per-file`, `--margin-slowest=N`, `--margin-baseline`/`--margin-output` diff mode
+- `tests/margin-baseline.json`: committed baseline snapshot (all metrics INTACT at v0.9.9); future runs can diff against it with `--margin-baseline=tests/margin-baseline.json`
+- CI gate: `--margin-fail-below=ABLATED --margin-slowest=5` added to GitHub Actions test step — build fails if any test-suite metric hits ABLATED; 5 slowest tests are reported with health classification
+
+---
+
 ## [0.9.8] — 2026-03-30
 
 ### Added

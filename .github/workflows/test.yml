@@ -23,4 +23,4 @@ jobs:
         run: pip install -e . && pip install pytest
 
       - name: Test
-        run: pytest tests/ -q
+        run: pytest tests/ -q --margin-fail-below=ABLATED --margin-slowest=5
