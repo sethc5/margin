@@ -2226,7 +2226,7 @@ Drift and anomaly annotations are printed when non-trivial (not STABLE/EXPECTED)
 Define Parser, Policy, and Contract from a dict, JSON, or YAML file
 instead of writing Python.
 
-### Config format
+### Minimal config
 
 ```yaml
 components:
@@ -2240,36 +2240,124 @@ components:
     ablated: 0.10
     lower_is_better: true
 
-default_thresholds:
-  intact: 80
-  ablated: 30
-
 policy:
-
   - name: critical
-
     when: any_ablated
     action: {op: RESTORE, alpha: 1.0}
     priority: 50
 
-  - name: maintain
+contract:
+  - name: cpu-healthy
+    component: cpu
+    health: INTACT
+```
 
+### Full config — all supported fields
+
+```yaml
+# Top-level name (optional, used as Policy name)
+name: my-policy
+
+# Allow all matching rules to fire in one step (default: false)
+multi_rule: false
+
+# Fallback thresholds for components without explicit values (optional)
+default_thresholds:
+  intact: 80
+  ablated: 30
+  higher_is_better: true
+
+components:
+  cpu:
+    baseline: 50
+    intact: 80
+    ablated: 30
+    higher_is_better: true   # default; use lower_is_better: true as shorthand
+
+  error_rate:
+    baseline: 0.002
+    intact: 0.01
+    ablated: 0.10
+    lower_is_better: true    # shorthand for higher_is_better: false
+
+  latency_ms:
+    baseline: 100
+    intact: 150
+    ablated: 500
+    lower_is_better: true
+    # Per-health display labels (override enum names in to_atom() / health_label)
+    labels:
+      INTACT: OK
+      DEGRADED: SLOW
+      ABLATED: CRITICAL
+
+policy:
+
+  - name: critical
+    when: any_ablated
+    priority: 50
+    min_confidence: moderate   # rule skipped when expression confidence < this
+    action:
+      op: RESTORE
+      target: cpu              # specific component; omit or use "*" for worst-degraded
+      alpha: 1.0
+      magnitude: 1.0
+      alpha_from_sigma: false  # when true, alpha is derived from |sigma| at runtime
+      magnitude_from_sigma: false  # when true, magnitude is derived from |sigma|
+    constraint:
+      cooldown_steps: 3        # steps to wait between firings of this rule
+      max_per_window: 5        # max firings within window_steps
+      window_steps: 20
+      min_alpha: 0.1           # clamp derived alpha from below
+      max_alpha: 0.9           # clamp derived alpha from above
+    escalation:
+      level: ALERT             # LOG | ALERT | CRITICAL | PAGE
+      reason: "CPU ablated — human review needed"
+
+  - name: maintain
     when: any_degraded
-    action: {op: RESTORE, alpha: 0.5}
     priority: 10
+    action: {op: RESTORE, alpha: 0.5}
 
   - name: normal
-
     when: all_intact
-    action: {op: NOOP}
     priority: 0
+    action: {op: NOOP}
 
 contract:
 
-  - name: cpu-healthy
-
+  # HealthTarget — component must be at target health right now
+  - type: health_target
+    name: cpu-healthy
     component: cpu
-    health: INTACT
+    target: INTACT             # INTACT | DEGRADED | ABLATED | RECOVERING | OOD
+
+  # ReachHealth — component must reach target health within N steps
+  - type: reach_health
+    name: error-rate-recovery
+    component: error_rate
+    target: INTACT
+    within_steps: 10
+
+  # SustainHealth — component must stay at target health for N consecutive steps
+  - type: sustain_health
+    name: latency-sustained
+    component: latency_ms
+    target: INTACT
+    for_steps: 5
+
+  # RecoveryThreshold — component must recover above a raw value threshold
+  - type: recovery_threshold
+    name: cpu-above-floor
+    component: cpu
+    threshold: 60.0
+    within_steps: 8
+
+  # NoHarmful — component must never drop below a raw value threshold
+  - type: no_harmful
+    name: latency-ceiling
+    component: latency_ms
+    threshold: 400.0
 ```
 
 ### Usage
@@ -2280,12 +2368,45 @@ from margin import from_config, load_config
 # From a Python dict
 cfg = from_config(config_dict)
 # cfg["parser"]    → Parser
-# cfg["policy"]    → Policy
-# cfg["contract"]  → Contract
+# cfg["policy"]    → Policy (if "policy" key present)
+# cfg["contract"]  → Contract (if "contract" key present)
 
 # From a file (JSON works out of the box, YAML needs pip install pyyaml)
 cfg = load_config("margin.yaml")
 ```
+
+### Component fields
+
+| Field | Type | Default | Notes |
+| --- | --- | --- | --- |
+| `baseline` | float | required | expected healthy value |
+| `intact` | float | 80 | intact threshold |
+| `ablated` | float | 30 | ablated threshold |
+| `higher_is_better` | bool | true | polarity |
+| `lower_is_better` | bool | — | shorthand; sets `higher_is_better: false` |
+| `labels` | dict | — | per-health display labels (`INTACT`, `DEGRADED`, `ABLATED`) |
+
+### Policy rule fields
+
+| Field | Type | Default | Notes |
+| --- | --- | --- | --- |
+| `name` | str | required | unique rule identifier |
+| `when` | str or dict | required | predicate; see registry below |
+| `priority` | int | 0 | higher fires first |
+| `min_confidence` | str | `low` | skip rule below this expression confidence |
+| `action.op` | str | `RESTORE` | `RESTORE \| SUPPRESS \| AMPLIFY \| NOOP` |
+| `action.target` | str | `*` | component name or `*` for worst-degraded |
+| `action.alpha` | float | 0.5 | mixing coefficient |
+| `action.magnitude` | float | 1.0 | correction size |
+| `action.alpha_from_sigma` | bool | false | derive alpha from \|sigma\| at runtime |
+| `action.magnitude_from_sigma` | bool | false | derive magnitude from \|sigma\| at runtime |
+| `constraint.cooldown_steps` | int | 0 | steps between firings |
+| `constraint.max_per_window` | int | 0 | 0 = unlimited |
+| `constraint.window_steps` | int | 0 | window for max_per_window |
+| `constraint.min_alpha` | float | 0.0 | floor for sigma-derived alpha |
+| `constraint.max_alpha` | float | 1.0 | ceiling for alpha |
+| `escalation.level` | str | — | `LOG \| ALERT \| CRITICAL \| PAGE` |
+| `escalation.reason` | str | `""` | human-readable message |
 
 ### Predicate registry
 
@@ -2297,13 +2418,25 @@ String names map to predicate factories for policy rules:
 
 Composable predicates via dict syntax:
 
-```python
-{"all_of": ["any_degraded", "any_correction"]}
-{"any_of": ["any_ablated", {"component_health": "cpu", "health": "ABLATED"}]}
-{"not": "all_intact"}
-{"sigma_below": "cpu", "threshold": -0.5}
-{"confidence_below": "low"}
+```yaml
+when: {all_of: [any_degraded, any_correction]}
+when: {any_of: [any_ablated, {component_health: cpu, health: ABLATED}]}
+when: {not: all_intact}
+when: {sigma_below: cpu, threshold: -0.5}
+when: {confidence_below: low}
 ```
+
+### Contract term types
+
+| `type` key | Required fields | Description |
+| --- | --- | --- |
+| `health_target` | `component`, `target` | must be at target health now |
+| `reach_health` | `component`, `target`, `within_steps` | reach target within N steps |
+| `sustain_health` | `component`, `target`, `for_steps` | sustain target for N consecutive steps |
+| `recovery_threshold` | `component`, `threshold`, `within_steps` | raw value must exceed threshold within N steps |
+| `no_harmful` | `component`, `threshold` | raw value must never drop below threshold |
+
+Backward-compatible: contract entries without a `type` key default to `health_target`.
 
 ---
 

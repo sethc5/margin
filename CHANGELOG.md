@@ -9,6 +9,19 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [0.9.8] — 2026-03-30
+
+### Added
+
+- `validate()` check #9: warns when a rule's `min_confidence` is `HIGH` or `CERTAIN` — `Parser.parse()` defaults observations to `MODERATE`, so such rules silently never fire without explicit per-component confidences
+
+### Changed
+
+- `Monitor.__init__` docstring: documents all parameters including the `features` asymmetry — `None` enables all trackers, `set()` disables all
+- `margin-language.md` config section: expanded from a single minimal example to a full reference — annotated YAML with every supported field, field tables for components / policy rules / contract terms, and `constraint`/`escalation`/`min_confidence`/`alpha_from_sigma`/`multi_rule`/`labels` all documented
+
+---
+
 ## [0.9.7] — 2026-03-30
 
 ### Added

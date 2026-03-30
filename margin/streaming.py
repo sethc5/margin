@@ -392,6 +392,21 @@ class Monitor:
         anomaly_min_reference: int = 10,
         features: Optional[set] = None,
     ):
+        """
+        Args:
+            parser:               Parser configured with baselines and thresholds
+            window:               base window size for all trackers (overridden per-tracker)
+            drift_window:         DriftTracker window (overrides ``window``)
+            anomaly_window:       AnomalyTracker window (overrides ``window``)
+            correlation_window:   CorrelationTracker window (overrides ``window``)
+            window_config:        WindowConfig dataclass; overrides named window params
+            min_correlation:      minimum |r| to include a pair in correlations
+            anomaly_min_reference: minimum steps before AnomalyTracker classifies
+            features:             set of tracker names to enable — ``{"drift"``,
+                                  ``"anomaly"``, ``"correlation"}``; ``None`` (default)
+                                  enables all three; ``set()`` disables all.
+                                  ``"health"`` is always implied and need not be listed.
+        """
         self.parser = parser
         self.window = window
 

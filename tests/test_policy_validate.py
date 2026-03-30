@@ -151,6 +151,44 @@ class TestComponentCoverage:
         assert len(comp_issues) == 0
 
 
+class TestMinConfidenceCheck:
+    def test_high_confidence_gate_warns(self):
+        rule = PolicyRule(
+            "r", any_degraded(),
+            Action(target="*", op=Op.RESTORE, alpha=0.5),
+            min_confidence=Confidence.HIGH,
+        )
+        result = validate(Policy(name="p", rules=[rule]))
+        assert any("min_confidence" in i.message or "MODERATE" in i.message
+                   for i in result.warnings)
+
+    def test_certain_confidence_gate_warns(self):
+        rule = PolicyRule(
+            "r", any_degraded(),
+            Action(target="*", op=Op.RESTORE, alpha=0.5),
+            min_confidence=Confidence.CERTAIN,
+        )
+        result = validate(Policy(name="p", rules=[rule]))
+        assert any("min_confidence" in i.message or "MODERATE" in i.message
+                   for i in result.warnings)
+
+    def test_moderate_confidence_gate_no_warn(self):
+        rule = PolicyRule(
+            "r", any_degraded(),
+            Action(target="*", op=Op.RESTORE, alpha=0.5),
+            min_confidence=Confidence.MODERATE,
+        )
+        result = validate(Policy(name="p", rules=[rule]))
+        # No warning about min_confidence for MODERATE (default parse behaviour)
+        assert not any("MODERATE" in i.message and "min_confidence" in i.message
+                       for i in result.warnings)
+
+    def test_low_confidence_gate_no_warn(self):
+        rule = _make_rule("r", any_degraded())  # default min_confidence=LOW
+        result = validate(Policy(name="p", rules=[rule]))
+        assert not any("min_confidence" in i.message for i in result.warnings)
+
+
 class TestValidationResult:
     def test_valid_when_no_errors(self):
         r = ValidationResult(issues=[])

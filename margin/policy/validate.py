@@ -82,6 +82,10 @@ def validate(
     5. Missing health coverage (no rule handles ABLATED, DEGRADED, etc.)
     6. Contract coverage (if a contract is provided, check that the
        policy has rules for every component the contract mentions)
+    7. Component coverage (if components list provided)
+    8. alpha_from_sigma without a constraint floor
+    9. min_confidence too high (Parser.parse() defaults to MODERATE, so
+       rules with min_confidence >= HIGH may silently never fire)
 
     Args:
         policy:     the policy to validate
@@ -145,6 +149,9 @@ def validate(
 
     # 8. alpha_from_sigma without a constraint floor
     _check_alpha_from_sigma(policy, issues)
+
+    # 9. min_confidence gate too high for default parse behaviour
+    _check_min_confidence(policy, issues)
 
     return ValidationResult(issues=issues)
 
@@ -256,3 +263,22 @@ def _check_component_coverage(
             issues.append(ValidationIssue(
                 "info", "policy",
                 f"component '{comp}' has no dedicated rule (no wildcard rules either)"))
+
+
+def _check_min_confidence(policy: Policy, issues: list[ValidationIssue]) -> None:
+    """
+    Warn when a rule's min_confidence gate is above MODERATE.
+
+    Parser.parse() assigns MODERATE confidence to every observation by
+    default (when no per-component confidences dict is passed). A rule
+    with min_confidence >= HIGH will therefore silently never fire unless
+    the caller explicitly passes HIGH or CERTAIN confidences on every step.
+    """
+    for rule in policy.rules:
+        if rule.min_confidence >= Confidence.HIGH:
+            issues.append(ValidationIssue(
+                "warning", rule.name,
+                f"min_confidence={rule.min_confidence.value} — Parser.parse() defaults "
+                "to MODERATE; this rule will never fire unless the caller explicitly "
+                "passes per-component confidences of HIGH or CERTAIN",
+            ))
