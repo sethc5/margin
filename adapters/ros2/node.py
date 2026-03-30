@@ -168,7 +168,7 @@ class MarginNode(Node):
 
         # Run through monitor
         now = datetime.now()
-        expr = self.monitor.update(self._latest_readings, now=now)
+        expr = self.monitor.update(self._latest_readings, now=now, label=self.robot_id)
 
         # Log health changes
         for obs in expr.observations:

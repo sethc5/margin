@@ -87,8 +87,8 @@ class CircuitMonitor:
         graph = CausalGraph(links=list(self.known_graph.links))
 
         # Add auto-discovered correlations
-        if self.monitor._correlation_tracker.matrix:
-            for corr in self.monitor._correlation_tracker.matrix.correlations:
+        if self.monitor.correlations:
+            for corr in self.monitor.correlations.correlations:
                 if corr.strength >= min_correlation:
                     graph.add(corr.to_causal_link())
 
