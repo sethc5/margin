@@ -63,6 +63,7 @@ class WindowConfig:
 from .confidence import Confidence
 from .health import Health, Thresholds, classify
 from .observation import Observation, Expression
+from .provenance import ProvenanceGraph
 from .drift import (
     DriftState, DriftDirection, DriftClassification,
     classify_drift,
@@ -391,6 +392,7 @@ class Monitor:
         min_correlation: float = 0.7,
         anomaly_min_reference: int = 10,
         features: Optional[set] = None,
+        provenance_graph: Optional[ProvenanceGraph] = None,
     ):
         """
         Args:
@@ -406,6 +408,11 @@ class Monitor:
                                   ``"anomaly"``, ``"correlation"}``; ``None`` (default)
                                   enables all three; ``set()`` disables all.
                                   ``"health"`` is always implied and need not be listed.
+            provenance_graph:     optional ProvenanceGraph; when provided, each
+                                  ``update()`` call records a root node
+                                  (``"monitor:step:N"``) and threads its ID into
+                                  every observation's ``provenance`` list, enabling
+                                  full lineage queries via ``monitor.provenance_graph``
         """
         self.parser = parser
         self.window = window
@@ -428,6 +435,7 @@ class Monitor:
                 stacklevel=2,
             )
 
+        self.provenance_graph: Optional[ProvenanceGraph] = provenance_graph
         self._expression: Optional[Expression] = None
         self._step = 0
 
@@ -468,6 +476,13 @@ class Monitor:
         Returns the current Expression.
         """
         now = now or datetime.now()
+
+        # Record a step root in the provenance graph if one is attached.
+        # The step ID is prepended to any caller-supplied provenance tags so
+        # every observation carries both the step origin and the user context.
+        if self.provenance_graph is not None:
+            step_id = self.provenance_graph.create_root(f"monitor:step:{self._step}")
+            provenance = [step_id] + list(provenance or [])
 
         # Health classification via Parser
         self._expression = self.parser.parse(
@@ -546,6 +561,8 @@ class Monitor:
                     d["anomaly"][name] = tracker.classification.to_dict()
         if self._correlation_tracker is not None and self._correlation_tracker.matrix:
             d["correlations"] = self._correlation_tracker.matrix.to_dict()
+        if self.provenance_graph is not None:
+            d["provenance_nodes"] = len(self.provenance_graph.nodes)
         return d
 
     def reset_anomaly_reference(self, components: Optional[list[str]] = None) -> None:
@@ -586,4 +603,5 @@ class Monitor:
             feat = ""
         else:
             feat = f", features={{{', '.join(sorted(self.features))}}}"
-        return f"Monitor(step={self._step}, {len(self._drift_trackers)} components, {w}{feat})"
+        pg = ", provenance=True" if self.provenance_graph is not None else ""
+        return f"Monitor(step={self._step}, {len(self._drift_trackers)} components, {w}{feat}{pg})"

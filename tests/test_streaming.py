@@ -8,6 +8,7 @@ from margin import (
     DriftTracker, AnomalyTracker, CorrelationTracker, Monitor,
     WindowConfig,
 )
+from margin.provenance import ProvenanceGraph
 
 
 t0 = datetime(2026, 1, 1)
@@ -448,3 +449,73 @@ class TestWindowConfigSerialization:
         assert wc.drift is None
         assert wc.anomaly is None
         assert wc.correlation is None
+
+
+class TestMonitorProvenanceGraph:
+    def _parser(self):
+        return Parser({"cpu": 100.0}, Thresholds(intact=80.0, ablated=40.0))
+
+    def test_provenance_graph_off_by_default(self):
+        m = Monitor(self._parser())
+        assert m.provenance_graph is None
+
+    def test_provenance_graph_records_step_nodes(self):
+        pg = ProvenanceGraph()
+        m = Monitor(self._parser(), provenance_graph=pg)
+        m.update({"cpu": 90.0})
+        m.update({"cpu": 85.0})
+        assert len(pg.nodes) == 2
+
+    def test_observations_carry_step_provenance_id(self):
+        pg = ProvenanceGraph()
+        m = Monitor(self._parser(), provenance_graph=pg)
+        expr = m.update({"cpu": 90.0})
+        obs = expr.observations[0]
+        assert len(obs.provenance) == 1
+        assert obs.provenance[0] in pg.nodes
+
+    def test_user_provenance_tags_also_included(self):
+        pg = ProvenanceGraph()
+        m = Monitor(self._parser(), provenance_graph=pg)
+        expr = m.update({"cpu": 90.0}, provenance=["sensor-42"])
+        obs = expr.observations[0]
+        assert "sensor-42" in obs.provenance
+        # also has the step root ID
+        assert any(p in pg.nodes for p in obs.provenance)
+
+    def test_step_node_operation_name(self):
+        pg = ProvenanceGraph()
+        m = Monitor(self._parser(), provenance_graph=pg)
+        m.update({"cpu": 90.0})
+        node = next(iter(pg.nodes.values()))
+        assert node.operation == "monitor:step:0"
+
+    def test_status_includes_provenance_node_count(self):
+        pg = ProvenanceGraph()
+        m = Monitor(self._parser(), provenance_graph=pg)
+        m.update({"cpu": 90.0})
+        s = m.status()
+        assert s["provenance_nodes"] == 1
+
+    def test_status_no_provenance_key_when_none(self):
+        m = Monitor(self._parser())
+        m.update({"cpu": 90.0})
+        assert "provenance_nodes" not in m.status()
+
+    def test_repr_shows_provenance(self):
+        pg = ProvenanceGraph()
+        m = Monitor(self._parser(), provenance_graph=pg)
+        assert "provenance=True" in repr(m)
+
+    def test_repr_no_provenance_marker_when_none(self):
+        m = Monitor(self._parser())
+        assert "provenance" not in repr(m)
+
+    def test_trace_lineage_via_graph(self):
+        pg = ProvenanceGraph()
+        m = Monitor(self._parser(), provenance_graph=pg)
+        expr = m.update({"cpu": 90.0})
+        step_id = expr.observations[0].provenance[0]
+        lineage = pg.trace_lineage(step_id)
+        assert len(lineage) == 1
+        assert lineage[0].id == step_id

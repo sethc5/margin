@@ -1,8 +1,22 @@
 """
 Event bus for validity invalidation.
 
-Wires Validity.until_event() to actual event dispatch. When an event
-fires, all values whose Validity references that event become stale.
+Standalone utility — not wired into Monitor or the evaluation loop.
+Use directly in event-driven systems where values should become stale
+when something changes (config reload, model update, deployment).
+
+    bus = EventBus()
+    bus.fire("config_reload")
+
+    v = Validity.until_event("config_reload")
+    bus.is_valid(v)  # False — invalidated
+
+    bus.on("deploy", lambda evt, ts: print(f"deployed at {ts}"))
+
+When an event fires, all Validity descriptors that reference it via
+Validity.until_event() become stale. bus.is_valid() / bus.is_value_valid()
+check this. EventBus does NOT integrate with Monitor health transitions;
+for that use case, attach a listener to Monitor.update() manually.
 """
 
 from __future__ import annotations

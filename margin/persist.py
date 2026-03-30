@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import Optional
 
 from .observation import Observation, Expression, Parser
+from .provenance import ProvenanceGraph
 from .streaming import Monitor, DriftTracker, AnomalyTracker, CorrelationTracker
 
 
@@ -41,6 +42,8 @@ def save_monitor(monitor: Monitor, path: str) -> None:
             "series": {c: list(d) for c, d in monitor._correlation_tracker._series.items()},
             "n_updates": monitor._correlation_tracker.n_updates,
         } if monitor._correlation_tracker is not None else None,
+        "provenance_graph": monitor.provenance_graph.to_dict()
+            if monitor.provenance_graph is not None else None,
     }
 
     for name, dt in monitor._drift_trackers.items():
@@ -84,6 +87,11 @@ def load_monitor(path: str, parser: Parser, **kwargs) -> Monitor:
         **kwargs,
     )
     monitor._step = data.get("step", 0)
+
+    # Restore provenance graph if present
+    pg_data = data.get("provenance_graph")
+    if pg_data is not None:
+        monitor.provenance_graph = ProvenanceGraph.from_dict(pg_data)
 
     # Restore drift tracker observations
     for name, dt_data in data.get("drift", {}).items():

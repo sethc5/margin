@@ -9,6 +9,22 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [0.9.10] — 2026-03-30
+
+### Added
+
+- `Monitor(parser, ..., provenance_graph=None)`: optional `ProvenanceGraph` attachment — when provided, each `update()` call records a root node (`"monitor:step:N"`) and threads its ID into every `Observation.provenance` list; enables full lineage queries via `monitor.provenance_graph.trace_lineage()`
+- `Monitor.status()`: includes `"provenance_nodes"` count when a graph is attached
+- `Monitor.__repr__`: shows `provenance=True` when a graph is attached
+- `save_monitor` / `load_monitor`: serialize and restore the provenance graph when attached
+
+### Changed
+
+- `events.py` docstring: explicit that `EventBus` is a standalone utility, not wired into `Monitor`; documents the intended use pattern (event-driven validity invalidation)
+- `margin-language.md` Structure table: corrected `provenance.py` description from "Correlation detection" (wrong) to "Value lineage tracking (ProvenanceGraph, provenance IDs)"
+
+---
+
 ## [0.9.9] — 2026-03-30
 
 ### Added

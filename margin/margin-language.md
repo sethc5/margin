@@ -2449,7 +2449,7 @@ margin/
 │ Foundation
 ├── confidence.py             Confidence tiers with ordering
 ├── validity.py               Temporal decay / event invalidation
-├── provenance.py             Correlation detection
+├── provenance.py             Value lineage tracking (ProvenanceGraph, provenance IDs)
 ├── uncertain.py              UncertainValue with epistemic metadata
 ├── algebra.py                Uncertainty propagation
 ├── health.py                 Health, Thresholds, classify, SEVERITY

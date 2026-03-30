@@ -10,6 +10,7 @@ from margin import (
     save_monitor, load_monitor, replay, replay_csv,
     DriftState, AnomalyState,
 )
+from margin.provenance import ProvenanceGraph
 
 
 def _parser():
@@ -264,3 +265,34 @@ class TestFeaturesRoundtrip:
 
         assert data["anomaly_min_reference"] == 25
         assert m2._anomaly_trackers["cpu"]._min_reference == 25
+
+
+class TestProvenanceGraphRoundtrip:
+    def test_provenance_graph_saved_and_restored(self):
+        p = _parser()
+        pg = ProvenanceGraph()
+        m = Monitor(p, provenance_graph=pg)
+        for i in range(3):
+            m.update({"cpu": 50.0, "mem": 70.0}, now=t0 + timedelta(seconds=i * 60))
+
+        with tempfile.NamedTemporaryFile(suffix=".json", delete=False) as f:
+            save_monitor(m, f.name)
+            m2 = load_monitor(f.name, p)
+            Path(f.name).unlink()
+
+        assert m2.provenance_graph is not None
+        assert len(m2.provenance_graph.nodes) == 3
+
+    def test_no_provenance_graph_not_saved(self):
+        p = _parser()
+        m = Monitor(p)
+        m.update({"cpu": 50.0, "mem": 70.0}, now=t0)
+
+        with tempfile.NamedTemporaryFile(suffix=".json", delete=False) as f:
+            save_monitor(m, f.name)
+            data = json.loads(Path(f.name).read_text())
+            m2 = load_monitor(f.name, p)
+            Path(f.name).unlink()
+
+        assert data.get("provenance_graph") is None
+        assert m2.provenance_graph is None
