@@ -664,6 +664,54 @@ class Monitor:
         all_obs.sort(key=lambda o: o.measured_at or datetime.min)
         return all_obs[-n:]
 
+    def anomaly_score(
+        self,
+        reference_fp: "Fingerprint",
+        metrics: Optional[list[str]] = None,
+    ) -> float:
+        """
+        Cross-session divergence score: how much does the current session diverge
+        from the reference fingerprint?
+
+        Computes the current session fingerprint, then returns the mean absolute
+        z-score across all components::
+
+            score = mean(|current_mean − ref_mean| / ref_std)
+
+        A score near 0 means "this session looks like the reference."
+        A score > 1.0 means the average component is more than 1 std from baseline.
+        A score > 2.0 is a strong signal of distributional shift.
+
+        Components with ``ref_std = 0`` are skipped.
+
+        Parameters
+        ----------
+        reference_fp: Fingerprint from a prior session (e.g. loaded from JSON)
+        metrics:      restrict to these component names; None = all shared keys
+
+        Example::
+
+            fp_s1 = Fingerprint.from_dict(json.loads(open("session1.json").read()))
+            score = monitor.anomaly_score(fp_s1)
+            if score > 1.5:
+                print(f"Session diverged from baseline (score={score:.2f})")
+        """
+        current_fp = self.fingerprint()
+        _metrics = list(metrics) if metrics is not None else list(
+            set(current_fp.keys()) & set(reference_fp.keys())
+        )
+        if not _metrics:
+            return 0.0
+        z_scores = []
+        for m in _metrics:
+            ref_std = reference_fp.get(m, {}).get("std", 0.0)
+            if ref_std == 0.0:
+                continue
+            cur_mean = current_fp.get(m, {}).get("mean", 0.0)
+            ref_mean = reference_fp.get(m, {}).get("mean", 0.0)
+            z_scores.append(abs(cur_mean - ref_mean) / ref_std)
+        return sum(z_scores) / len(z_scores) if z_scores else 0.0
+
     def reset_anomaly_reference(self, components: Optional[list[str]] = None) -> None:
         """
         Clear AnomalyTracker reference windows for the specified components.

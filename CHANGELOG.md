@@ -9,6 +9,21 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [0.9.19] — 2026-03-30
+
+### Added
+
+- `Fingerprint.to_tensor(metrics, stats, format)`: export fingerprint as a flat vector for neural conditioning; `format="list"` (default, no deps), `"numpy"`, or `"torch"`; missing stats default to 0.0; enables direct D_fp conditioning from quality fingerprints
+- `Fingerprint.distance(other, metrics, stats)`: L2 distance in the flattened (mean, std) space — same vector layout as `to_tensor()`; only shared components compared by default; enables retrieval-augmented alpha ("find the Session 1 sentence most similar to current state")
+- `Fingerprint.kl_divergence(other, metrics, symmetric)`: KL divergence treating each component as N(mean, std²); symmetric by default; components with std=0 skipped; `KL(N(0,1)||N(1,1)) = 0.5` exactly
+- `Fingerprint.similarity(other, metrics, stats)`: cosine similarity in flattened (mean, std) space; returns value in [−1, 1]
+- `Fingerprint.update(component, value)`: online Welford incremental update — O(1), numerically stable; adds new components on first call; appends to raw values list when present; returns self for chaining
+- `Fingerprint.merge(other, weight=0.5)`: weighted linear combination of two fingerprints; mean and std interpolated; n summed; percentiles interpolated when present in both; disjoint-key components preserved unchanged
+- `Fingerprint.metrics` property: sorted list of components with n > 0 (excludes placeholder entries)
+- `Monitor.anomaly_score(reference_fp, metrics)`: cross-session divergence score — mean absolute z-score of current session means vs reference fingerprint (`|cur_mean − ref_mean| / ref_std` per component); near 0 = same distribution; >1.0 = at least one component shifted by >1 std; >2.0 = strong distributional shift signal
+
+---
+
 ## [0.9.18] — 2026-03-30
 
 ### Fixed

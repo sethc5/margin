@@ -8,6 +8,7 @@ and fp["component"]["mean"] still works unchanged.
 
 from __future__ import annotations
 
+import math
 from typing import Optional
 
 
@@ -51,7 +52,7 @@ class Fingerprint(dict):
         json.dumps(fp)        # works — serializes as {name: {mean, std, n, trend}}
         isinstance(fp, dict)  # True
 
-    Richer noise-resistant queries::
+    Noise-resistant queries::
 
         fp.robust_target("cpu")              # median (default)
         fp.robust_target("cpu", "trimmed")   # 10% trimmed mean
@@ -59,10 +60,29 @@ class Fingerprint(dict):
 
     Cross-session normalization::
 
-        fp.sigma("cpu", value)               # (value − mean) / |mean|
+        fp.sigma("cpu", value)               # z-score: (value − mean) / std
         fp.robust_sigma("cpu", value)        # (value − median) / IQR
 
-    The raw ``values`` dict stores per-component float lists from the drift
+    Neural conditioning::
+
+        fp.to_tensor(["rr", "improvement"], ["mean", "std"])   # flat list
+        fp.to_tensor(..., format="numpy")                       # np.ndarray
+        fp.to_tensor(..., format="torch")                       # torch.Tensor
+
+    Session comparison::
+
+        fp.distance(other_fp)               # L2 in flattened (mean,std) space
+        fp.kl_divergence(other_fp)          # symmetric KL of Gaussian components
+
+    Online update::
+
+        fp.update("recovery_ratio", 0.12)   # Welford incremental update
+
+    Multi-session aggregation::
+
+        fp.merge(other_fp, weight=0.5)      # weighted average of two fingerprints
+
+    The raw ``_values`` dict stores per-component float lists from the drift
     window, enabling true median / percentile without re-scanning trackers.
     Raw values are ephemeral (not included in JSON / to_dict output).
     """
@@ -76,7 +96,16 @@ class Fingerprint(dict):
         self._values: dict[str, list[float]] = values or {}
 
     # ------------------------------------------------------------------
-    # Rich queries (everything else is inherited from dict)
+    # Inspection
+    # ------------------------------------------------------------------
+
+    @property
+    def metrics(self) -> list[str]:
+        """Sorted list of components with at least one observation (n > 0)."""
+        return [k for k in sorted(self.keys()) if self.get(k, {}).get("n", 0) > 0]
+
+    # ------------------------------------------------------------------
+    # Noise-resistant queries
     # ------------------------------------------------------------------
 
     def robust_target(self, component: str, method: str = "median") -> float:
@@ -124,6 +153,10 @@ class Fingerprint(dict):
             return stats.get("mean", 0.0)
         return _percentile(vals, p)
 
+    # ------------------------------------------------------------------
+    # Cross-session normalization
+    # ------------------------------------------------------------------
+
     def sigma(self, component: str, value: float) -> float:
         """
         Z-score of ``value`` against the fingerprint's empirical distribution.
@@ -139,18 +172,12 @@ class Fingerprint(dict):
         Falls back to ``(value − mean) / |mean|`` when ``std`` is zero (constant
         window or not yet stored), and returns ``value`` unchanged when both
         ``mean`` and ``std`` are zero.
-
-        Example::
-
-            metric = fp.sigma("recovery_ratio", cq.recovery_ratio)
-            alpha, reason = ctrl.step(alpha, metric)
         """
         stats = self.get(component, {})
         mean = stats.get("mean", 0.0)
         std = stats.get("std", 0.0)
         if std != 0.0:
             return (value - mean) / std
-        # std=0: constant distribution — fall back to relative deviation
         if mean == 0.0:
             return value
         return (value - mean) / abs(mean)
@@ -167,11 +194,6 @@ class Fingerprint(dict):
 
         Falls back to :meth:`sigma` when IQR is zero (constant window or no
         raw values stored).
-
-        Example::
-
-            metric = fp.robust_sigma("recovery_ratio", cq.recovery_ratio)
-            alpha, reason = ctrl.step(alpha, metric)
         """
         median = self.robust_target(component, "median")
         q25 = self.percentile(component, 25)
@@ -181,17 +203,245 @@ class Fingerprint(dict):
             return self.sigma(component, value)
         return (value - median) / iqr
 
+    # ------------------------------------------------------------------
+    # Neural conditioning
+    # ------------------------------------------------------------------
+
+    def to_tensor(
+        self,
+        metrics: Optional[list[str]] = None,
+        stats: tuple[str, ...] = ("mean", "std"),
+        format: str = "list",
+    ):
+        """
+        Export fingerprint as a flat vector for neural conditioning.
+
+        Returns the values in row-major order:
+        ``[metric0_stat0, metric0_stat1, metric1_stat0, ...]``
+
+        Parameters
+        ----------
+        metrics: components to include, in order; ``None`` = ``sorted(self.keys())``
+        stats:   which stat fields to include per component (default: mean and std)
+        format:  ``"list"`` (default, no dependencies), ``"numpy"``, or ``"torch"``
+
+        Example::
+
+            # Flat 4-element list: [rr_mean, rr_std, imp_mean, imp_std]
+            vec = fp.to_tensor(["recovery_ratio", "improvement"], ["mean", "std"])
+
+            # As torch tensor for D_fp conditioning:
+            t = fp.to_tensor(["recovery_ratio", "improvement"], format="torch")
+        """
+        _metrics = metrics if metrics is not None else sorted(self.keys())
+        values = []
+        for m in _metrics:
+            s = self.get(m, {})
+            for stat in stats:
+                values.append(float(s.get(stat, 0.0)))
+
+        if format == "list":
+            return values
+        if format == "numpy":
+            import numpy as np
+            return np.array(values, dtype=np.float32)
+        if format == "torch":
+            import torch
+            return torch.tensor(values, dtype=torch.float32)
+        raise ValueError(
+            f"Unknown format {format!r}. Supported: 'list', 'numpy', 'torch'"
+        )
+
+    # ------------------------------------------------------------------
+    # Session comparison
+    # ------------------------------------------------------------------
+
+    def distance(
+        self,
+        other: "Fingerprint",
+        metrics: Optional[list[str]] = None,
+        stats: tuple[str, ...] = ("mean", "std"),
+    ) -> float:
+        """
+        L2 distance between two fingerprints in the flattened (mean, std) space.
+
+        Uses the same vector layout as :meth:`to_tensor` — the distance is
+        directly interpretable as distance in the tensor space used for neural
+        conditioning.
+
+        Only components present in both fingerprints are compared (``metrics``
+        can restrict further).
+
+        Example::
+
+            # Find the Session 1 sentence fingerprint closest to current state
+            best = min(session1_fps, key=lambda fp1: live_fp.distance(fp1))
+        """
+        _metrics = metrics if metrics is not None else sorted(
+            set(self.keys()) & set(other.keys())
+        )
+        a = self.to_tensor(metrics=_metrics, stats=stats)
+        b = other.to_tensor(metrics=_metrics, stats=stats)
+        return sum((x - y) ** 2 for x, y in zip(a, b)) ** 0.5
+
+    def kl_divergence(
+        self,
+        other: "Fingerprint",
+        metrics: Optional[list[str]] = None,
+        symmetric: bool = True,
+    ) -> float:
+        """
+        KL divergence treating each component as an independent Gaussian N(mean, std²).
+
+        When ``symmetric=True`` (default), returns the symmetric KL:
+        ``0.5 * (KL(self || other) + KL(other || self))``.
+
+        Components with std=0 are skipped (degenerate Gaussians).
+
+        Example::
+
+            drift = fp_session1.kl_divergence(fp_session2)
+            if drift > 2.0:
+                print("sessions differ significantly")
+        """
+        _metrics = metrics if metrics is not None else sorted(
+            set(self.keys()) & set(other.keys())
+        )
+
+        def _kl_gaussians(p_fp: "Fingerprint", q_fp: "Fingerprint") -> float:
+            total = 0.0
+            for m in _metrics:
+                mu_p = p_fp.get(m, {}).get("mean", 0.0)
+                sig_p = max(p_fp.get(m, {}).get("std", 0.0), 1e-8)
+                mu_q = q_fp.get(m, {}).get("mean", 0.0)
+                sig_q = max(q_fp.get(m, {}).get("std", 0.0), 1e-8)
+                # KL(N(μ_p,σ_p²) || N(μ_q,σ_q²))
+                total += (
+                    math.log(sig_q / sig_p)
+                    + (sig_p ** 2 + (mu_p - mu_q) ** 2) / (2.0 * sig_q ** 2)
+                    - 0.5
+                )
+            return total
+
+        if symmetric:
+            return 0.5 * (_kl_gaussians(self, other) + _kl_gaussians(other, self))
+        return _kl_gaussians(self, other)
+
+    def similarity(
+        self,
+        other: "Fingerprint",
+        metrics: Optional[list[str]] = None,
+        stats: tuple[str, ...] = ("mean", "std"),
+    ) -> float:
+        """
+        Cosine similarity between two fingerprints in the flattened (mean, std) space.
+
+        Returns a value in [−1, 1]; 1.0 = identical direction, 0.0 = orthogonal.
+        """
+        _metrics = metrics if metrics is not None else sorted(
+            set(self.keys()) & set(other.keys())
+        )
+        a = self.to_tensor(metrics=_metrics, stats=stats)
+        b = other.to_tensor(metrics=_metrics, stats=stats)
+        dot = sum(x * y for x, y in zip(a, b))
+        mag_a = sum(x ** 2 for x in a) ** 0.5
+        mag_b = sum(x ** 2 for x in b) ** 0.5
+        if mag_a == 0.0 or mag_b == 0.0:
+            return 0.0
+        return dot / (mag_a * mag_b)
+
+    # ------------------------------------------------------------------
+    # Online update
+    # ------------------------------------------------------------------
+
+    def update(self, component: str, value: float) -> "Fingerprint":
+        """
+        Incrementally update statistics for ``component`` using Welford's algorithm.
+
+        O(1), numerically stable.  Updates ``mean``, ``std``, and ``n`` in-place.
+        Also appends to the raw values list if one exists (for percentile accuracy).
+
+        Returns ``self`` for chaining.
+
+        Example::
+
+            for obs in live_observations:
+                fp.update("recovery_ratio", obs.value)
+        """
+        stats = dict(self.get(component) or {
+            "mean": 0.0, "std": 0.0, "n": 0, "trend": "UNKNOWN"
+        })
+        n_old = stats.get("n", 0)
+        n_new = n_old + 1
+        mean_old = stats.get("mean", 0.0)
+        mean_new = mean_old + (value - mean_old) / n_new
+        # Reconstruct M2 from stored std²*(n-1), update, recompute std
+        m2_old = stats.get("std", 0.0) ** 2 * max(n_old - 1, 0)
+        m2_new = m2_old + (value - mean_old) * (value - mean_new)
+        std_new = (m2_new / (n_new - 1)) ** 0.5 if n_new >= 2 else 0.0
+        stats["mean"] = mean_new
+        stats["std"] = std_new
+        stats["n"] = n_new
+        self[component] = stats
+
+        if component in self._values:
+            self._values[component].append(value)
+
+        return self
+
+    # ------------------------------------------------------------------
+    # Multi-session aggregation
+    # ------------------------------------------------------------------
+
+    def merge(self, other: "Fingerprint", weight: float = 0.5) -> "Fingerprint":
+        """
+        Weighted combination of two fingerprints.
+
+        ``weight=0.5``: equal mix; ``weight=0.0``: returns copy of self;
+        ``weight=1.0``: returns copy of other.
+
+        Mean and std are linearly interpolated; n is summed.  Components
+        present in only one fingerprint are included unchanged.
+
+        Example::
+
+            # Running average of Session 1 and Session 2
+            combined = fp_session1.merge(fp_session2, weight=0.5)
+        """
+        w = max(0.0, min(1.0, weight))
+        all_keys = set(self.keys()) | set(other.keys())
+        merged: dict[str, dict] = {}
+        for k in sorted(all_keys):
+            s = self.get(k) or {}
+            o = other.get(k) or {}
+            if not s:
+                merged[k] = dict(o)
+            elif not o:
+                merged[k] = dict(s)
+            else:
+                merged[k] = {
+                    "mean": s.get("mean", 0.0) * (1 - w) + o.get("mean", 0.0) * w,
+                    "std": s.get("std", 0.0) * (1 - w) + o.get("std", 0.0) * w,
+                    "n": s.get("n", 0) + o.get("n", 0),
+                    "trend": o.get("trend", s.get("trend", "UNKNOWN")),
+                }
+                # Carry over percentiles if both have them (interpolate)
+                for key in ("median", "q25", "q75"):
+                    if key in s and key in o:
+                        merged[k][key] = s[key] * (1 - w) + o[key] * w
+        return Fingerprint(stats=merged)
+
+    # ------------------------------------------------------------------
+    # Serialization
+    # ------------------------------------------------------------------
+
     def n(self, component: str) -> int:
         """Number of observations for ``component`` in this fingerprint."""
         return self.get(component, {}).get("n", 0)
 
     def components(self) -> list[str]:
-        """Sorted list of component names."""
+        """Sorted list of all component names (including n=0)."""
         return sorted(self.keys())
-
-    # ------------------------------------------------------------------
-    # Serialization
-    # ------------------------------------------------------------------
 
     def to_dict(self) -> dict:
         """Plain dict (stats only; raw values are ephemeral)."""
