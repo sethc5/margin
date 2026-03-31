@@ -5,16 +5,37 @@ A Controller computes the next value of a scalar parameter (``alpha``) based
 on the current system observations.  The canonical use-case is adjusting a
 session confidence multiplier or circuit-breaker gain after each step.
 
+Two strategies
+--------------
+``"proportional_setpoint"`` (recommended when warm/cold distinction matters)
+    Standard P controller — drives alpha toward ``target``::
+
+        alpha_next = alpha + kp * (target - metric)
+
+    ``target`` is the setpoint: the metric value you want to track.
+    Warm and cold controllers differ because they have different targets.
+
+``"proportional_asymmetric"``
+    Asymmetric P controller — ramp up on good signals, hard backoff on bad::
+
+        metric >= 0:  alpha_next = alpha + kp * metric
+        metric <  0:  alpha_next = alpha * backoff
+
+    ``target`` is the *initial alpha value* for the caller to seed with
+    ``alpha = ctrl.target`` before the loop — it does not enter step() math.
+
 Usage::
 
-    ctrl = Controller(strategy="proportional_asymmetric", kp=0.3, target=0.5,
+    # Setpoint strategy — target actively influences every step
+    ctrl = Controller(strategy="proportional_setpoint", kp=0.3, target=0.5,
                       alpha_min=1.0, alpha_max=4.0)
     alpha_next, reason = ctrl.step(alpha, expr.observations)
 
-Warm-start from a Monitor fingerprint (condenses ~30 lines of boilerplate)::
+Warm-start from a Monitor fingerprint::
 
     fp = monitor.fingerprint()
     ctrl = Controller.from_fingerprint(fp, "recovery_ratio", kp=0.3, cold_target=0.5,
+                                       strategy="proportional_setpoint",
                                        alpha_min=1.0, alpha_max=4.0)
     alpha_next, reason = ctrl.step(alpha, expr.observations)
 """
@@ -37,26 +58,37 @@ class Controller:
 
     Strategies
     ----------
-    ``"proportional_asymmetric"`` (default)
-        Treats the mean sigma of ``observations`` as the performance metric.
+    ``"proportional_setpoint"``
+        Standard P controller — drives alpha toward ``target``::
 
-        * metric ≥ 0 → ``alpha += kp * metric``  (proportional nudge upward)
-        * metric < 0 → ``alpha *= backoff``       (hard multiplicative backoff)
+            alpha_next = alpha + kp * (target - metric)
 
-        The asymmetry reflects a common control preference: slow ramp-up,
-        fast backoff when the system goes below baseline.
+        ``target`` is the setpoint; the controller actively works to make
+        the metric equal to target.  Warm and cold controllers (different
+        targets) produce different alpha trajectories from the first step.
+
+    ``"proportional_asymmetric"`` (default, original behaviour)
+        Asymmetric P controller — ramp up on good signals, hard backoff on bad::
+
+            metric >= 0:  alpha_next = alpha + kp * metric
+            metric <  0:  alpha_next = alpha * backoff
+
+        ``target`` here is the *initial alpha value* the caller should use to
+        seed the loop: ``alpha = ctrl.target``.  It does not enter step() math.
 
     Parameters
     ----------
-    strategy:   name of the update rule (currently only ``"proportional_asymmetric"``)
-    kp:         proportional gain (how aggressively to increase alpha on good signals)
-    target:     initial / warm-start value for alpha — used by callers as the
-                starting point before the first ``step()`` call
-    backoff:    multiplicative factor applied on negative metric (default 0.90)
-    alpha_min:  lower bound for alpha (default 0.0); stored on the controller so
-                callers don't have to pass it every ``step()`` call
-    alpha_max:  upper bound for alpha (default 1.0); stored on the controller
+    strategy:   ``"proportional_setpoint"`` or ``"proportional_asymmetric"``
+    kp:         proportional gain
+    target:     setpoint (``proportional_setpoint``) or initial alpha seed
+                (``proportional_asymmetric``)
+    backoff:    multiplicative factor on negative metric (``proportional_asymmetric``
+                only; ignored by ``proportional_setpoint``)
+    alpha_min:  lower clamp bound stored on the controller (default 0.0)
+    alpha_max:  upper clamp bound stored on the controller (default 1.0)
     """
+
+    _STRATEGIES = {"proportional_asymmetric", "proportional_setpoint"}
 
     def __init__(
         self,
@@ -67,10 +99,10 @@ class Controller:
         alpha_min: float = 0.0,
         alpha_max: float = 1.0,
     ):
-        if strategy != "proportional_asymmetric":
+        if strategy not in self._STRATEGIES:
             raise ValueError(
                 f"Unknown strategy {strategy!r}. "
-                "Currently supported: 'proportional_asymmetric'"
+                f"Supported: {sorted(self._STRATEGIES)}"
             )
         self.strategy = strategy
         self.kp = kp
@@ -106,10 +138,18 @@ class Controller:
         Falls back to ``cold_target`` when the fingerprint has insufficient
         data (new session, component not yet warm, etc.).
 
-        This condenses ~30 lines of per-session calibration boilerplate::
+        With ``strategy="proportional_setpoint"``, the warm target becomes the
+        control setpoint — warm and cold controllers actively drive alpha toward
+        different values, producing different trajectories from the first step.
+
+        With ``strategy="proportional_asymmetric"``, the warm target is the
+        starting alpha value (seed with ``alpha = ctrl.target`` before the loop).
+
+        Typical use::
 
             ctrl = Controller.from_fingerprint(
                 fp, "recovery_ratio", kp=0.3, cold_target=0.5,
+                strategy="proportional_setpoint",
                 alpha_min=1.0, alpha_max=4.0,
             )
 
@@ -177,12 +217,20 @@ class Controller:
 
         metric = self._metric(observations)
 
-        if metric >= 0:
-            alpha_next = alpha + self.kp * metric
-            reason = f"P({metric:+.3f}): {alpha:.3f}→{min(alpha_next, a_max):.3f}"
-        else:
-            alpha_next = alpha * self.backoff
-            reason = f"backoff({metric:.3f}): {alpha:.3f}→{max(alpha_next, a_min):.3f}"
+        if self.strategy == "proportional_setpoint":
+            error = self.target - metric
+            alpha_next = alpha + self.kp * error
+            reason = (
+                f"SP(err={error:+.3f}, tgt={self.target:.3f}): "
+                f"{alpha:.3f}→{max(a_min, min(a_max, alpha_next)):.3f}"
+            )
+        else:  # proportional_asymmetric
+            if metric >= 0:
+                alpha_next = alpha + self.kp * metric
+                reason = f"P({metric:+.3f}): {alpha:.3f}→{min(alpha_next, a_max):.3f}"
+            else:
+                alpha_next = alpha * self.backoff
+                reason = f"backoff({metric:.3f}): {alpha:.3f}→{max(alpha_next, a_min):.3f}"
 
         alpha_next = max(a_min, min(a_max, alpha_next))
         return alpha_next, reason

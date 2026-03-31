@@ -190,6 +190,10 @@ class TestControllerInit:
         assert ctrl.target == 0.7
         assert ctrl.backoff == 0.85
 
+    def test_proportional_setpoint_valid(self):
+        ctrl = Controller(strategy="proportional_setpoint", kp=0.3, target=0.5)
+        assert ctrl.strategy == "proportional_setpoint"
+
     def test_unknown_strategy_raises(self):
         with pytest.raises(ValueError, match="Unknown strategy"):
             Controller(strategy="bang_bang")
@@ -258,6 +262,66 @@ class TestControllerStep:
         ctrl = Controller(kp=0.5, target=2.0, alpha_min=1.0, alpha_max=4.0)
         alpha_next, _ = ctrl.step(2.0, 0.5)  # 2.0 + 0.5*0.5 = 2.25
         assert alpha_next == pytest.approx(2.25)  # not clamped to 1.0
+
+
+class TestControllerSetpointStrategy:
+    """proportional_setpoint: alpha += kp * (target - metric)"""
+
+    def test_drives_toward_target(self):
+        # metric < target → positive error → alpha increases
+        ctrl = Controller(strategy="proportional_setpoint", kp=0.5, target=0.6)
+        alpha_next, reason = ctrl.step(0.5, 0.2)
+        assert alpha_next == pytest.approx(0.5 + 0.5 * (0.6 - 0.2))
+        assert "SP(" in reason
+
+    def test_above_target_decreases_alpha(self):
+        # metric > target → negative error → alpha decreases
+        ctrl = Controller(strategy="proportional_setpoint", kp=0.5, target=0.3)
+        alpha_next, reason = ctrl.step(0.5, 0.6)
+        assert alpha_next == pytest.approx(0.5 + 0.5 * (0.3 - 0.6))
+
+    def test_at_target_no_change(self):
+        ctrl = Controller(strategy="proportional_setpoint", kp=0.5, target=0.4)
+        alpha_next, _ = ctrl.step(0.5, 0.4)  # error=0
+        assert alpha_next == pytest.approx(0.5)
+
+    def test_reason_includes_target(self):
+        ctrl = Controller(strategy="proportional_setpoint", kp=0.3, target=0.5)
+        _, reason = ctrl.step(0.4, 0.2)
+        assert "tgt=0.500" in reason
+
+    def test_clamp_applied(self):
+        ctrl = Controller(strategy="proportional_setpoint", kp=5.0, target=1.0,
+                          alpha_min=0.0, alpha_max=1.0)
+        alpha_next, _ = ctrl.step(0.5, 0.0)  # 0.5 + 5*(1-0) = 5.5 → clamped
+        assert alpha_next == pytest.approx(1.0)
+
+    def test_warm_cold_differ(self):
+        # Core regression: warm and cold controllers must produce different alpha
+        fp = _make_fp([0.1] * 20, name="recovery_ratio")  # median ≈ 0.1
+        warm = Controller.from_fingerprint(
+            fp, "recovery_ratio", kp=0.3, cold_target=0.5,
+            strategy="proportional_setpoint",
+        )
+        cold = Controller.from_fingerprint(
+            fp, "recovery_ratio", kp=0.3, cold_target=0.5,
+            strategy="proportional_setpoint",
+            min_n=999,  # force cold start
+        )
+        assert warm.target != cold.target  # warm ≈ 0.1, cold = 0.5
+        metric = 0.3
+        warm_next, _ = warm.step(0.5, metric)
+        cold_next, _ = cold.step(0.5, metric)
+        assert warm_next != pytest.approx(cold_next)  # different trajectories
+
+    def test_backoff_not_used(self):
+        # proportional_setpoint is symmetric — no hard backoff on negative metric
+        ctrl = Controller(strategy="proportional_setpoint", kp=0.5, target=0.4,
+                          backoff=0.10)
+        alpha_next, reason = ctrl.step(0.5, 0.6)  # metric > target → decrease
+        # Should NOT apply backoff (0.5 * 0.10); should use error formula
+        assert alpha_next == pytest.approx(0.5 + 0.5 * (0.4 - 0.6))
+        assert "backoff" not in reason
 
 
 class TestControllerStepFromObservations:

@@ -9,6 +9,19 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [0.9.15] — 2026-03-30
+
+### Added
+
+- `Controller` strategy `"proportional_setpoint"`: standard P controller — `alpha_next = alpha + kp * (target - metric)`; `target` is the setpoint the controller actively tracks; warm and cold controllers (different targets) produce different alpha trajectories from the first step; `backoff` is not applied
+- `Controller._STRATEGIES`: set of valid strategy names (`"proportional_asymmetric"`, `"proportional_setpoint"`); `ValueError` now lists all valid strategies
+
+### Fixed
+
+- `Controller` with `proportional_asymmetric`: clarified that `target` in this strategy is the *initial alpha seed* (`alpha = ctrl.target`), not a setpoint — it does not enter `step()` math; `proportional_setpoint` is the strategy where `target` actively drives the loop
+
+---
+
 ## [0.9.14] — 2026-03-30
 
 ### Fixed
