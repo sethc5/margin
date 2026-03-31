@@ -87,11 +87,16 @@ class Fingerprint(dict):
         ``method="trimmed"``  — 10% trimmed mean
         ``method="mean"``     — plain mean (same as ``fp[component]["mean"]``)
 
-        Falls back to ``fp[component]["mean"]`` when no raw values are stored.
+        When no raw values are stored, checks for pre-computed ``"median"`` in
+        the stats dict (present when fingerprint came from ``Monitor.fingerprint()``),
+        then falls back to ``"mean"``.
         """
         vals = self._values.get(component)
         if not vals:
-            return self.get(component, {}).get("mean", 0.0)
+            stats = self.get(component, {})
+            if method == "median":
+                return stats.get("median", stats.get("mean", 0.0))
+            return stats.get("mean", 0.0)
         if method == "median":
             return _percentile(vals, 50)
         if method == "trimmed":
@@ -103,11 +108,20 @@ class Fingerprint(dict):
         """
         Return the p-th percentile (0–100) of observed values for ``component``.
 
-        Falls back to the stored mean when no raw values are available.
+        When no raw values are stored, checks for pre-computed ``"q25"`` / ``"q75"`` /
+        ``"median"`` in the stats dict (present when fingerprint came from
+        ``Monitor.fingerprint()``), then falls back to ``"mean"``.
         """
         vals = self._values.get(component)
         if not vals:
-            return self.get(component, {}).get("mean", 0.0)
+            stats = self.get(component, {})
+            if p == 25 and "q25" in stats:
+                return stats["q25"]
+            if p == 75 and "q75" in stats:
+                return stats["q75"]
+            if p == 50 and "median" in stats:
+                return stats["median"]
+            return stats.get("mean", 0.0)
         return _percentile(vals, p)
 
     def sigma(self, component: str, value: float) -> float:

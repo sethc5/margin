@@ -561,6 +561,78 @@ class TestFingerprintSigma:
         assert fp.sigma("missing", 0.7) == pytest.approx(0.7)
 
 
+class TestFingerprintPrecomputedPercentiles:
+    """Fingerprints from Monitor.fingerprint() now include median/q25/q75.
+    percentile() and robust_target() must use them when no raw values stored."""
+
+    def test_monitor_fingerprint_includes_median(self):
+        monitor = _make_monitor(20)
+        fp = monitor.fingerprint()
+        assert "median" in fp["alpha"]
+        assert "q25" in fp["alpha"]
+        assert "q75" in fp["alpha"]
+
+    def test_robust_sigma_live_after_serialization(self):
+        # Simulate the Build #29 scenario:
+        # Session 1 fingerprint saved as JSON, loaded in Session 2 — no raw values.
+        monitor = _make_monitor(30)
+        fp_live = monitor.fingerprint()
+        # Round-trip through JSON (loses raw values, keeps precomputed percentiles)
+        import json
+        fp_reloaded = Fingerprint.from_dict(json.loads(json.dumps(fp_live)))
+        # robust_sigma should differ from sigma (IQR != 0, median != mean generally)
+        # At minimum, it must not crash and must not return 0.0 for a nonzero input
+        result = fp_reloaded.robust_sigma("alpha", 0.55)
+        assert isinstance(result, float)
+
+    def test_robust_sigma_uses_precomputed_iqr(self):
+        # Construct fingerprint with known median/q25/q75
+        fp = Fingerprint(stats={"rr": {
+            "mean": 0.070, "std": 0.498, "n": 98, "trend": "DRIFTING",
+            "median": 0.050, "q25": 0.020, "q75": 0.120,
+        }})
+        # IQR = 0.120 - 0.020 = 0.100
+        # robust_sigma(0.14) = (0.14 - 0.050) / 0.100 = 0.9
+        assert fp.robust_sigma("rr", 0.14) == pytest.approx(0.9)
+
+    def test_robust_sigma_differs_from_mean_based(self):
+        # When median != mean (skewed distribution), the two should differ
+        fp = Fingerprint(stats={"rr": {
+            "mean": 0.070, "std": 0.498, "n": 98, "trend": "DRIFTING",
+            "median": 0.050, "q25": 0.020, "q75": 0.120,
+        }})
+        assert fp.robust_sigma("rr", 0.14) != pytest.approx(fp.sigma("rr", 0.14))
+
+    def test_regression_build29_scenario(self):
+        # Exact values from the user's Session 1 meta.json
+        fp = Fingerprint(stats={"recovery_ratio": {
+            "mean": 0.070, "std": 0.498, "n": 98, "trend": "DRIFTING",
+            "median": 0.050, "q25": 0.020, "q75": 0.120,
+        }})
+        r = fp.robust_sigma("recovery_ratio", 0.14)
+        # Previously returned 1.0 (mean-based fallback); now uses IQR
+        assert r == pytest.approx(0.9)
+        mean_based = fp.sigma("recovery_ratio", 0.14)
+        assert r != pytest.approx(mean_based)
+
+    def test_percentile_uses_precomputed_q25(self):
+        fp = Fingerprint(stats={"rr": {
+            "mean": 1.0, "std": 0.1, "n": 10, "trend": "STABLE",
+            "median": 1.0, "q25": 0.8, "q75": 1.2,
+        }})
+        assert fp.percentile("rr", 25) == pytest.approx(0.8)
+        assert fp.percentile("rr", 75) == pytest.approx(1.2)
+        assert fp.percentile("rr", 50) == pytest.approx(1.0)
+
+    def test_percentile_fallback_to_mean_for_other_p(self):
+        # Only 25/50/75 are pre-computed; other p falls back to mean
+        fp = Fingerprint(stats={"rr": {
+            "mean": 1.0, "std": 0.1, "n": 10, "trend": "STABLE",
+            "median": 1.0, "q25": 0.8, "q75": 1.2,
+        }})
+        assert fp.percentile("rr", 10) == pytest.approx(1.0)  # falls back to mean
+
+
 class TestFingerprintRobustSigma:
     def test_median_centered(self):
         # Uniform values: median=3.0, IQR=2.0

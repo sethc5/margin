@@ -64,7 +64,7 @@ from .confidence import Confidence
 from .health import Health, Thresholds, classify
 from .observation import Observation, Expression
 from .provenance import ProvenanceGraph
-from .fingerprint import Fingerprint
+from .fingerprint import Fingerprint, _percentile as _fp_percentile
 from .drift import (
     DriftState, DriftDirection, DriftClassification,
     classify_drift,
@@ -606,6 +606,9 @@ class Monitor:
                 "std": std,
                 "n": n,
                 "trend": dc.state.value if dc is not None else "UNKNOWN",
+                "median": _fp_percentile(values, 50),
+                "q25": _fp_percentile(values, 25),
+                "q75": _fp_percentile(values, 75),
             }
             raw_values[name] = values
         return Fingerprint(stats=stats, values=raw_values)

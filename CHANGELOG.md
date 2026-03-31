@@ -9,6 +9,17 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [0.9.17] — 2026-03-30
+
+### Fixed
+
+- `Monitor.fingerprint()`: now includes `"median"`, `"q25"`, `"q75"` in each component's stats dict alongside `"mean"`, `"std"`, `"n"`, `"trend"`; these survive JSON round-trip, making `robust_sigma()` live after deserialization
+- `Fingerprint.robust_sigma()`: previously fell back silently to mean-based normalization when the fingerprint had no raw values (e.g. after `from_dict()`), making `robust=True` identical to `robust=False`; now uses pre-computed `"median"`/`"q25"`/`"q75"` from the stats dict when available
+- `Fingerprint.percentile(p)`: uses pre-computed `"q25"` (p=25), `"q75"` (p=75), `"median"` (p=50) from the stats dict when no raw values are stored; falls back to mean for other p values
+- `Fingerprint.robust_target(method="median")`: uses pre-computed `"median"` from stats dict when no raw values are stored
+
+---
+
 ## [0.9.16] — 2026-03-30
 
 ### Added
