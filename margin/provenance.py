@@ -41,20 +41,31 @@ class ProvenanceNode:
     """
     A node in the provenance graph representing a single derived value.
 
-    id:         unique identifier
-    operation:  what created this value (e.g. "add", "measure_gap_IOI")
-    source_ids: IDs of input values this was derived from
+    id:           unique identifier
+    operation:    what created this value (e.g. "add", "measure_gap_IOI")
+    source_ids:   IDs of input values this was derived from
+    external_key: optional external key (e.g. SQLite run_id) for joining
+                  provenance back to an external data source
     """
     id: str
     operation: str
     source_ids: list[str] = field(default_factory=list)
+    external_key: Optional[str] = None
 
     def to_dict(self) -> dict:
-        return {"id": self.id, "operation": self.operation, "source_ids": self.source_ids}
+        d = {"id": self.id, "operation": self.operation, "source_ids": self.source_ids}
+        if self.external_key is not None:
+            d["external_key"] = self.external_key
+        return d
 
     @classmethod
     def from_dict(cls, d: dict) -> ProvenanceNode:
-        return cls(id=d["id"], operation=d["operation"], source_ids=d.get("source_ids", []))
+        return cls(
+            id=d["id"],
+            operation=d["operation"],
+            source_ids=d.get("source_ids", []),
+            external_key=d.get("external_key"),
+        )
 
 
 class ProvenanceGraph:
@@ -110,6 +121,29 @@ class ProvenanceGraph:
         node_id = new_id()
         self.add_node(ProvenanceNode(id=node_id, operation=operation, source_ids=source_ids))
         return node_id
+
+    def bind_key(self, node_id: str, external_key: str) -> 'ProvenanceGraph':
+        """
+        Attach an external key to a provenance node.
+
+        Enables joining lineage back to an external data source (e.g. a
+        SQLite ``run_id``) without a separate lookup table.
+
+            graph.bind_key(step_node_id, f"run:{run_id}")
+            node = graph.get_node(step_node_id)
+            node.external_key  # → "run:42"
+
+        Silently ignores unknown ``node_id`` values (the node may have been
+        pruned by ``compress()``).  Returns self for chaining.
+        """
+        node = self.nodes.get(node_id)
+        if node is not None:
+            node.external_key = external_key
+        return self
+
+    def find_by_key(self, external_key: str) -> list[ProvenanceNode]:
+        """Return all nodes whose ``external_key`` matches ``external_key``."""
+        return [n for n in self.nodes.values() if n.external_key == external_key]
 
     def compress(self, max_nodes: int = 500) -> 'ProvenanceGraph':
         """

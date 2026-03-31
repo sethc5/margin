@@ -9,6 +9,22 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [0.9.20] — 2026-03-31
+
+### Added
+
+- `Fingerprint.optimal_ordering(items, key_fn, metrics, stats)`: greedy nearest-neighbor TSP reordering of a list by fingerprint similarity — starts from item closest to batch centroid, always steps to the nearest unvisited item; maximises model cache reuse across batches; `key_fn` extracts a Fingerprint from each item
+- `Fingerprint.from_batch(items, feature_fn)`: build a Fingerprint from an iterable using Welford's algorithm; `feature_fn(item)` returns a `{component: float}` dict; O(N) in batch size, O(1) per update; replaces the pattern of building N individual fingerprints and merging
+- `Monitor.predict(metric, steps=1)`: linear extrapolation of a tracked metric using OLS on the drift window; enables proactive resource management (e.g. predict RSS 100 batches ahead to trigger reclaim before ceiling); returns raw extrapolated value (no clamping — caller compares against own ceiling)
+- `ProvenanceGraph.bind_key(node_id, external_key)`: attach an external key (e.g. SQLite `run_id`) to a provenance node; returns self for chaining; silently ignores unknown `node_id`
+- `ProvenanceGraph.find_by_key(external_key)`: return all nodes whose `external_key` matches; enables joining provenance lineage to external data sources without a separate lookup table
+- `ProvenanceNode.external_key`: new optional field (default `None`); serialized in `to_dict()` only when set; `from_dict()` backward-compatible
+- `Monitor.attribute_drift(component=None)`: with a component name returns `DriftClassification` (same as `drift()`, named for attribution context); without args returns `{component: DriftClassification}` for all tracked components — designed for watchdog scans
+- `Controller.step_from_features(alpha, feature_vector, weights, alpha_min, alpha_max)`: compute metric from feature vector via weighted dot product, then apply the normal control law; enables soft/continuous priority gates instead of hard binary thresholds
+- `Controller.with_feature_weights(weights)`: return a copy of the controller with stored feature weights; does not mutate the original
+
+---
+
 ## [0.9.19] — 2026-03-30
 
 ### Added

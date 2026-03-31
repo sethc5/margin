@@ -664,6 +664,86 @@ class Monitor:
         all_obs.sort(key=lambda o: o.measured_at or datetime.min)
         return all_obs[-n:]
 
+    def predict(self, metric: str, steps: int = 1) -> float:
+        """
+        Extrapolate a tracked metric ``steps`` into the future.
+
+        Fits a simple linear regression (ordinary least squares) to the
+        values currently in the drift window for ``metric``, then extrapolates
+        ``steps`` steps ahead.  Returns the predicted value, clamped to the
+        observed range (no extrapolation below min or above max of window).
+
+        Use cases::
+
+            # Predict RSS in 100 batches so the engine can reclaim early
+            projected_rss = monitor.predict("rss_gb", steps=100)
+            if projected_rss > RSS_CEILING * 0.9:
+                trigger_reclaim()
+
+        Returns the most recent observed value when fewer than 2 observations
+        are available (no trend to fit).  Returns 0.0 for unknown ``metric``.
+
+        Parameters
+        ----------
+        metric: component name tracked by this Monitor
+        steps:  how many steps ahead to predict (default 1)
+        """
+        tracker = self._drift_trackers.get(metric)
+        if tracker is None:
+            return 0.0
+        obs = list(tracker._observations)
+        n = len(obs)
+        if n == 0:
+            return 0.0
+        if n == 1:
+            return obs[0].value
+
+        values = [o.value for o in obs]
+        xs = list(range(n))
+
+        # OLS: slope = (n*Σxy - Σx*Σy) / (n*Σx² - (Σx)²)
+        sum_x = sum(xs)
+        sum_y = sum(values)
+        sum_xy = sum(x * y for x, y in zip(xs, values))
+        sum_x2 = sum(x * x for x in xs)
+        denom = n * sum_x2 - sum_x * sum_x
+        if denom == 0:
+            return values[-1]
+        slope = (n * sum_xy - sum_x * sum_y) / denom
+        intercept = (sum_y - slope * sum_x) / n
+        return intercept + slope * (n - 1 + steps)
+
+    def attribute_drift(
+        self,
+        component: Optional[str] = None,
+    ):
+        """
+        Return drift classification(s) framed for attribution / alerting.
+
+        With a ``component``: returns the ``DriftClassification`` for that
+        component (same as ``monitor.drift(component)`` but named for
+        attribution context — "what is driving the change in pass_rate?").
+
+        Without a ``component``: returns ``{component: DriftClassification}``
+        for every tracked component that has a classification, so a watchdog
+        can scan all metrics in one call::
+
+            for comp, dc in monitor.attribute_drift().items():
+                if dc.state != DriftState.STABLE:
+                    alert(f"{comp}: {dc.state.value} @ rate={dc.rate:.3f}")
+
+        Parameters
+        ----------
+        component: component name, or ``None`` to return all
+        """
+        if component is not None:
+            return self.drift(component)
+        return {
+            name: t.classification
+            for name, t in self._drift_trackers.items()
+            if t.classification is not None
+        }
+
     def anomaly_score(
         self,
         reference_fp: "Fingerprint",

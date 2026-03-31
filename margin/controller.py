@@ -124,6 +124,7 @@ class Controller:
         self.alpha_min = alpha_min
         self.alpha_max = alpha_max
         self._from_fingerprint: bool = False
+        self.feature_weights: Optional[list[float]] = None
 
     # ------------------------------------------------------------------
     # Factory
@@ -259,6 +260,72 @@ class Controller:
 
         metric = self._metric(observations)
         return self._apply(alpha, metric, a_min, a_max)
+
+    def step_from_features(
+        self,
+        alpha: float,
+        feature_vector: list[float],
+        weights: Optional[list[float]] = None,
+        alpha_min: Optional[float] = None,
+        alpha_max: Optional[float] = None,
+    ) -> tuple[float, str]:
+        """
+        Compute the next alpha from a raw feature vector.
+
+        Converts ``feature_vector`` to a scalar metric via weighted dot product,
+        then runs the normal control law.  This enables a soft, continuous
+        priority score (e.g. ``[t025_score, community_similarity]``) instead
+        of a hard binary threshold gate.
+
+        ``metric = dot(weights, feature_vector)``
+
+        If ``weights`` is None, falls back to ``self.feature_weights`` (set via
+        :meth:`with_feature_weights`), then to equal weights (mean of features).
+
+        Parameters
+        ----------
+        alpha:          current alpha value
+        feature_vector: list of floats [f0, f1, ..., fN]
+        weights:        per-call weight override; None = use stored weights
+        alpha_min:      per-call lower clamp override
+        alpha_max:      per-call upper clamp override
+
+        Example::
+
+            ctrl = Controller(strategy="proportional_setpoint", kp=0.3, target=0.5)
+            ctrl = ctrl.with_feature_weights([0.6, 0.4])
+            alpha, reason = ctrl.step_from_features(
+                alpha, [t025_score, community_sim]
+            )
+        """
+        a_min = alpha_min if alpha_min is not None else self.alpha_min
+        a_max = alpha_max if alpha_max is not None else self.alpha_max
+
+        _weights = weights or self.feature_weights
+        if _weights is not None:
+            n = min(len(_weights), len(feature_vector))
+            metric = sum(_weights[i] * feature_vector[i] for i in range(n))
+        else:
+            metric = sum(feature_vector) / len(feature_vector) if feature_vector else 0.0
+
+        reason_prefix = f"features({len(feature_vector)}): metric={metric:+.3f} "
+        alpha_next, inner_reason = self._apply(alpha, metric, a_min, a_max)
+        return alpha_next, reason_prefix + inner_reason
+
+    def with_feature_weights(self, weights: list[float]) -> "Controller":
+        """
+        Return a copy of this controller with ``feature_weights`` set.
+
+        Does not mutate the original::
+
+            ctrl = Controller(strategy="proportional_setpoint", kp=0.3, target=0.5,
+                              alpha_min=0.0, alpha_max=1.0)
+            ctrl = ctrl.with_feature_weights([0.6, 0.4])
+        """
+        import copy
+        clone = copy.copy(self)
+        clone.feature_weights = list(weights)
+        return clone
 
     def step_normalized(
         self,

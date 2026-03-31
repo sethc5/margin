@@ -432,6 +432,133 @@ class Fingerprint(dict):
         return Fingerprint(stats=merged)
 
     # ------------------------------------------------------------------
+    # Batch construction
+    # ------------------------------------------------------------------
+
+    @classmethod
+    def from_batch(
+        cls,
+        items,
+        feature_fn,
+    ) -> "Fingerprint":
+        """
+        Build a Fingerprint from a batch of items using Welford's algorithm.
+
+        ``feature_fn`` extracts a ``{component: float}`` dict from each item.
+        All components seen across the batch are aggregated.
+
+        Example::
+
+            # Fingerprint a batch of communities by genus composition
+            fp = Fingerprint.from_batch(
+                communities,
+                feature_fn=lambda c: {"genus_diversity": c.shannon_h,
+                                      "mean_quality":   c.mean_t025},
+            )
+
+        Parameters
+        ----------
+        items:      iterable of anything
+        feature_fn: callable(item) → dict[str, float]
+        """
+        result = cls(stats={})
+        for item in items:
+            features = feature_fn(item)
+            for component, value in features.items():
+                result.update(component, float(value))
+        return result
+
+    # ------------------------------------------------------------------
+    # Ordering / retrieval
+    # ------------------------------------------------------------------
+
+    @classmethod
+    def optimal_ordering(
+        cls,
+        items: list,
+        key_fn,
+        metrics: Optional[list[str]] = None,
+        stats: tuple[str, ...] = ("mean", "std"),
+    ) -> list:
+        """
+        Reorder ``items`` to maximise cache reuse via greedy nearest-neighbor.
+
+        ``key_fn`` extracts a :class:`Fingerprint` from each item.  The
+        algorithm starts from the item whose fingerprint is closest to the
+        batch centroid, then always picks the unvisited item closest to the
+        current one (greedy TSP approximation).
+
+        This is a classmethod so it can be called without an instance::
+
+            ordered = Fingerprint.optimal_ordering(batches, key_fn=lambda b: b.fp)
+
+        Parameters
+        ----------
+        items:    list of objects to reorder
+        key_fn:   callable(item) → Fingerprint
+        metrics:  restrict distance calculation to these components;
+                  ``None`` = all shared keys between each pair
+        stats:    which stat fields to use for distance (default: mean and std)
+
+        Returns
+        -------
+        Reordered copy of ``items``.
+
+        Example::
+
+            ordered_batches = Fingerprint.optimal_ordering(
+                batches,
+                key_fn=lambda b: b.fingerprint,
+                metrics=["genus_diversity", "mean_quality"],
+            )
+        """
+        if not items:
+            return []
+        if len(items) == 1:
+            return list(items)
+
+        fps = [key_fn(item) for item in items]
+
+        # Compute centroid fingerprint from all stat means
+        all_keys: set[str] = set()
+        for fp in fps:
+            all_keys.update(fp.keys())
+        _metrics = sorted(metrics) if metrics is not None else sorted(all_keys)
+
+        centroid_vals: dict[str, dict] = {}
+        for m in _metrics:
+            vals_m = [fp.get(m, {}).get("mean", 0.0) for fp in fps]
+            stds_m = [fp.get(m, {}).get("std", 0.0) for fp in fps]
+            centroid_vals[m] = {
+                "mean": sum(vals_m) / len(vals_m),
+                "std": sum(stds_m) / len(stds_m),
+                "n": 1,
+            }
+        centroid = cls(stats=centroid_vals)
+
+        # Start from the item closest to the centroid
+        start = min(range(len(fps)), key=lambda i: centroid.distance(fps[i], metrics=_metrics, stats=stats))
+
+        visited = [False] * len(items)
+        order = [start]
+        visited[start] = True
+
+        while len(order) < len(items):
+            current_fp = fps[order[-1]]
+            best_idx, best_dist = -1, float("inf")
+            for j, fp_j in enumerate(fps):
+                if visited[j]:
+                    continue
+                d = current_fp.distance(fp_j, metrics=_metrics, stats=stats)
+                if d < best_dist:
+                    best_dist = d
+                    best_idx = j
+            order.append(best_idx)
+            visited[best_idx] = True
+
+        return [items[i] for i in order]
+
+    # ------------------------------------------------------------------
     # Serialization
     # ------------------------------------------------------------------
 
