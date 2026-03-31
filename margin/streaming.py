@@ -670,8 +670,8 @@ class Monitor:
 
         Fits a simple linear regression (ordinary least squares) to the
         values currently in the drift window for ``metric``, then extrapolates
-        ``steps`` steps ahead.  Returns the predicted value, clamped to the
-        observed range (no extrapolation below min or above max of window).
+        ``steps`` steps ahead.  Returns the raw extrapolated value with no
+        clamping — the result may exceed the observed min/max.
 
         Use cases::
 

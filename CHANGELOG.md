@@ -9,6 +9,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [0.9.21] — 2026-03-31
+
+### Fixed
+
+- `Monitor.predict()` docstring incorrectly stated the result was "clamped to the observed range"; the implementation returns the raw OLS extrapolation with no clamping (confirmed by tests)
+
+---
+
 ## [0.9.20] — 2026-03-31
 
 ### Added
