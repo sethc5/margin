@@ -1,4 +1,5 @@
 """Tests for Controller and Fingerprint."""
+import json
 import pytest
 from margin.fingerprint import Fingerprint, _percentile, _trimmed_mean
 from margin.controller import Controller
@@ -144,6 +145,25 @@ class TestFingerprintSerialization:
         # Raw values are ephemeral — fallback to mean
         assert fp2.robust_target("cpu") == pytest.approx(fp["cpu"]["mean"])
 
+    def test_json_serializable(self):
+        # Bug 1: Fingerprint must be directly JSON-serializable (no custom encoder)
+        fp = _make_fp([1.0, 2.0, 3.0])
+        result = json.dumps(fp)  # must not raise
+        parsed = json.loads(result)
+        assert parsed["cpu"]["mean"] == pytest.approx(fp["cpu"]["mean"])
+
+    def test_json_in_nested_dict(self):
+        # Common pattern: embed fingerprint in a larger metadata dict
+        fp = _make_fp([1.0, 2.0, 3.0])
+        meta = {"session": "abc", "fingerprint": fp}
+        result = json.dumps(meta)  # must not raise
+        parsed = json.loads(result)
+        assert "cpu" in parsed["fingerprint"]
+
+    def test_isinstance_dict(self):
+        fp = _make_fp([1.0, 2.0])
+        assert isinstance(fp, dict)
+
 
 # -----------------------------------------------------------------------
 # Controller
@@ -156,6 +176,13 @@ class TestControllerInit:
         assert ctrl.kp == 0.3
         assert ctrl.target == 0.5
         assert ctrl.backoff == 0.90
+        assert ctrl.alpha_min == 0.0
+        assert ctrl.alpha_max == 1.0
+
+    def test_custom_bounds(self):
+        ctrl = Controller(kp=0.3, target=2.0, alpha_min=1.0, alpha_max=4.0)
+        assert ctrl.alpha_min == 1.0
+        assert ctrl.alpha_max == 4.0
 
     def test_custom(self):
         ctrl = Controller(kp=0.5, target=0.7, backoff=0.85)
@@ -168,8 +195,10 @@ class TestControllerInit:
             Controller(strategy="bang_bang")
 
     def test_repr(self):
-        ctrl = Controller(kp=0.3, target=0.5)
+        ctrl = Controller(kp=0.3, target=0.5, alpha_min=1.0, alpha_max=4.0)
         assert "proportional_asymmetric" in repr(ctrl)
+        assert "1.0" in repr(ctrl)
+        assert "4.0" in repr(ctrl)
 
 
 class TestControllerStep:
@@ -190,12 +219,30 @@ class TestControllerStep:
         alpha_next, reason = ctrl.step(0.5, 0.0)
         assert alpha_next == pytest.approx(0.5)
 
-    def test_clamp_upper(self):
+    def test_stored_bounds_used_by_default(self):
+        # Bug 2: bounds stored at construction, not required every call
+        ctrl = Controller(kp=1.0, target=2.0, alpha_min=1.0, alpha_max=4.0)
+        # Positive metric, no bounds passed — should clamp at stored alpha_max=4.0
+        alpha_next, _ = ctrl.step(3.9, 1.0)  # 3.9 + 1.0*1.0 = 4.9 → clamped to 4.0
+        assert alpha_next == pytest.approx(4.0)
+
+    def test_stored_lower_bound(self):
+        ctrl = Controller(kp=0.3, target=2.0, backoff=0.01, alpha_min=1.0, alpha_max=4.0)
+        alpha_next, _ = ctrl.step(1.01, -1.0)  # 1.01 * 0.01 = 0.0101 → clamped to 1.0
+        assert alpha_next == pytest.approx(1.0)
+
+    def test_per_call_override_beats_stored(self):
+        ctrl = Controller(kp=1.0, target=2.0, alpha_min=1.0, alpha_max=4.0)
+        # Override alpha_max to 2.0 for this call only
+        alpha_next, _ = ctrl.step(1.5, 1.0, alpha_max=2.0)
+        assert alpha_next == pytest.approx(2.0)
+
+    def test_clamp_upper_explicit(self):
         ctrl = Controller(kp=2.0, target=0.5)
         alpha_next, _ = ctrl.step(0.9, 1.0, alpha_max=1.0)
         assert alpha_next == pytest.approx(1.0)
 
-    def test_clamp_lower(self):
+    def test_clamp_lower_explicit(self):
         ctrl = Controller(kp=0.3, target=0.5, backoff=0.01)
         alpha_next, _ = ctrl.step(0.01, -1.0, alpha_min=0.05)
         assert alpha_next == pytest.approx(0.05)
@@ -204,6 +251,13 @@ class TestControllerStep:
         ctrl = Controller(kp=1.0, target=0.5)
         alpha_next, _ = ctrl.step(0.0, 0.3)
         assert alpha_next == pytest.approx(0.3)
+
+    def test_wide_range_no_silent_clamp(self):
+        # Regression: alpha_min=1.0, alpha_max=4.0 — step without explicit bounds
+        # must NOT silently clamp to [0, 1]
+        ctrl = Controller(kp=0.5, target=2.0, alpha_min=1.0, alpha_max=4.0)
+        alpha_next, _ = ctrl.step(2.0, 0.5)  # 2.0 + 0.5*0.5 = 2.25
+        assert alpha_next == pytest.approx(2.25)  # not clamped to 1.0
 
 
 class TestControllerStepFromObservations:
@@ -275,6 +329,15 @@ class TestControllerFromFingerprint:
         fp = {"recovery_ratio": {"mean": 0.7, "std": 0.1, "n": 20, "trend": "STABLE"}}
         ctrl = Controller.from_fingerprint(fp, "recovery_ratio", kp=0.3, cold_target=0.5)
         assert ctrl.target == pytest.approx(0.7)
+
+    def test_bounds_stored_from_fingerprint(self):
+        fp = _make_fp([0.5] * 15)
+        ctrl = Controller.from_fingerprint(
+            fp, "cpu", kp=0.3, cold_target=0.5,
+            alpha_min=1.0, alpha_max=4.0,
+        )
+        assert ctrl.alpha_min == 1.0
+        assert ctrl.alpha_max == 4.0
 
 
 # -----------------------------------------------------------------------

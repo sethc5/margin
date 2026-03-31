@@ -9,6 +9,22 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [0.9.14] — 2026-03-30
+
+### Fixed
+
+- `Fingerprint` JSON serialization: `Fingerprint` now subclasses `dict` — `json.dumps(fp)` works without a custom encoder, `isinstance(fp, dict)` is `True`, and all dict methods are inherited natively; fixes `TypeError: Object of type Fingerprint is not JSON serializable` when embedding fingerprints in serialized session metadata
+- `Controller` silent alpha clamp bug: `alpha_min` and `alpha_max` are now stored on the `Controller` at construction (defaulting to `0.0` / `1.0`) and used by `step()` without requiring the caller to pass them every call; callers with non-default ranges (e.g. `alpha_min=1.0, alpha_max=4.0`) no longer get silently clamped to `[0, 1]`; per-call override of either bound is still supported
+
+### Changed
+
+- `Controller.__init__`: added `alpha_min=0.0` and `alpha_max=1.0` parameters
+- `Controller.from_fingerprint`: added `alpha_min=0.0` and `alpha_max=1.0` parameters
+- `Controller.step`: `alpha_min` / `alpha_max` are now optional overrides (default `None` → use stored bounds)
+- `Controller.__repr__`: now shows `alpha=[min, max]`
+
+---
+
 ## [0.9.13] — 2026-03-30
 
 ### Fixed

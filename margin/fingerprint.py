@@ -2,8 +2,8 @@
 Fingerprint: session statistics with noise-resistant target queries.
 
 Monitor.fingerprint() returns a Fingerprint instead of a plain dict.
-Backward-compatible: fp["component"]["mean"] still works.
-Richer: fp.robust_target("component"), fp.percentile("component", 50).
+Subclasses dict — fully JSON-serializable, isinstance(fp, dict) is True,
+and fp["component"]["mean"] still works unchanged.
 """
 
 from __future__ import annotations
@@ -41,14 +41,15 @@ def _trimmed_mean(values: list[float], fraction: float = 0.1) -> float:
     return sum(trimmed) / len(trimmed)
 
 
-class Fingerprint:
+class Fingerprint(dict):
     """
     Session statistics from Monitor.fingerprint().
 
-    Supports dict-like access for backward compatibility::
+    Subclasses ``dict`` — fully JSON-serializable without a custom encoder::
 
-        fp["cpu"]["mean"]     # still works
-        fp["cpu"]["std"]      # still works
+        fp["cpu"]["mean"]     # works
+        json.dumps(fp)        # works — serializes as {name: {mean, std, n, trend}}
+        isinstance(fp, dict)  # True
 
     Richer noise-resistant queries::
 
@@ -56,13 +57,9 @@ class Fingerprint:
         fp.robust_target("cpu", "trimmed")   # 10% trimmed mean
         fp.percentile("cpu", 25)             # 25th percentile
 
-    Construction:
-
-        stats  — {component: {mean, std, n, trend}}  (same as old dict return)
-        values — {component: [raw float values]}     (from drift window)
-
-    The ``values`` dict enables true median / percentile without re-scanning
-    every tracker observation at call time.
+    The raw ``values`` dict stores per-component float lists from the drift
+    window, enabling true median / percentile without re-scanning trackers.
+    Raw values are ephemeral (not included in JSON / to_dict output).
     """
 
     def __init__(
@@ -70,40 +67,11 @@ class Fingerprint:
         stats: dict[str, dict],
         values: Optional[dict[str, list[float]]] = None,
     ):
-        self._stats = stats
+        super().__init__(stats)
         self._values: dict[str, list[float]] = values or {}
 
     # ------------------------------------------------------------------
-    # Dict-like interface (backward compat)
-    # ------------------------------------------------------------------
-
-    def __getitem__(self, key: str) -> dict:
-        return self._stats[key]
-
-    def __contains__(self, key: object) -> bool:
-        return key in self._stats
-
-    def __iter__(self):
-        return iter(self._stats)
-
-    def __len__(self) -> int:
-        return len(self._stats)
-
-    def keys(self):
-        return self._stats.keys()
-
-    def items(self):
-        return self._stats.items()
-
-    def values(self):
-        """Return stat dicts for all components (mirrors dict.values())."""
-        return self._stats.values()
-
-    def get(self, key: str, default=None):
-        return self._stats.get(key, default)
-
-    # ------------------------------------------------------------------
-    # Rich queries
+    # Rich queries (everything else is inherited from dict)
     # ------------------------------------------------------------------
 
     def robust_target(self, component: str, method: str = "median") -> float:
@@ -118,7 +86,7 @@ class Fingerprint:
         """
         vals = self._values.get(component)
         if not vals:
-            return self._stats.get(component, {}).get("mean", 0.0)
+            return self.get(component, {}).get("mean", 0.0)
         if method == "median":
             return _percentile(vals, 50)
         if method == "trimmed":
@@ -134,24 +102,24 @@ class Fingerprint:
         """
         vals = self._values.get(component)
         if not vals:
-            return self._stats.get(component, {}).get("mean", 0.0)
+            return self.get(component, {}).get("mean", 0.0)
         return _percentile(vals, p)
 
     def n(self, component: str) -> int:
         """Number of observations for ``component`` in this fingerprint."""
-        return self._stats.get(component, {}).get("n", 0)
+        return self.get(component, {}).get("n", 0)
 
     def components(self) -> list[str]:
         """Sorted list of component names."""
-        return sorted(self._stats.keys())
+        return sorted(self.keys())
 
     # ------------------------------------------------------------------
     # Serialization
     # ------------------------------------------------------------------
 
     def to_dict(self) -> dict:
-        """Serialize to a plain dict (stats only; raw values are ephemeral)."""
-        return dict(self._stats)
+        """Plain dict (stats only; raw values are ephemeral)."""
+        return dict(self)
 
     @classmethod
     def from_dict(cls, d: dict) -> "Fingerprint":
@@ -159,4 +127,4 @@ class Fingerprint:
         return cls(stats=d)
 
     def __repr__(self) -> str:
-        return f"Fingerprint({len(self._stats)} components, raw_values={bool(self._values)})"
+        return f"Fingerprint({len(self)} components, raw_values={bool(self._values)})"
