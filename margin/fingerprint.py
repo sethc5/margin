@@ -126,23 +126,31 @@ class Fingerprint(dict):
 
     def sigma(self, component: str, value: float) -> float:
         """
-        Normalize ``value`` against the fingerprint's empirical mean.
+        Z-score of ``value`` against the fingerprint's empirical distribution.
 
-        Returns ``(value − mean) / |mean|``.
+        Returns ``(value − mean) / std``  (standard z-score).
 
-        Positive = above session baseline; negative = below.  Used to
-        convert a raw domain measurement into a cross-session comparable
-        signal before passing it to ``Controller.step()``.
+        Using ``std`` as denominator is correct for cross-session normalization.
+        ``|mean|`` would only be appropriate when the coefficient of variation
+        (std/|mean|) is small; for high-CV components (e.g. ``std=0.498``,
+        ``mean=0.070``, CV=7.1) it amplifies by 7×, turning a normal ±0.07
+        swing into ±1.0 and saturating the controller.
 
-        Returns ``value`` unchanged when the stored mean is zero
-        (no finite normalization is possible).
+        Falls back to ``(value − mean) / |mean|`` when ``std`` is zero (constant
+        window or not yet stored), and returns ``value`` unchanged when both
+        ``mean`` and ``std`` are zero.
 
         Example::
 
             metric = fp.sigma("recovery_ratio", cq.recovery_ratio)
             alpha, reason = ctrl.step(alpha, metric)
         """
-        mean = self.get(component, {}).get("mean", 0.0)
+        stats = self.get(component, {})
+        mean = stats.get("mean", 0.0)
+        std = stats.get("std", 0.0)
+        if std != 0.0:
+            return (value - mean) / std
+        # std=0: constant distribution — fall back to relative deviation
         if mean == 0.0:
             return value
         return (value - mean) / abs(mean)

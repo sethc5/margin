@@ -552,13 +552,27 @@ class TestFingerprintSigma:
 
     def test_negative_mean(self):
         fp = Fingerprint(stats={"rr": {"mean": -2.0, "std": 0.5, "n": 10, "trend": "STABLE"}})
-        # (value - mean) / |mean| = (-1.0 - (-2.0)) / 2.0 = 0.5
-        assert fp.sigma("rr", -1.0) == pytest.approx(0.5)
+        # z-score: (value - mean) / std = (-1.0 - (-2.0)) / 0.5 = 2.0
+        assert fp.sigma("rr", -1.0) == pytest.approx(2.0)
 
     def test_missing_component_returns_value(self):
         fp = _make_fp([1.0] * 10)
         # missing → mean=0.0 → returns value unchanged
         assert fp.sigma("missing", 0.7) == pytest.approx(0.7)
+
+    def test_uses_std_not_mean_as_denominator(self):
+        # Regression: Build #29 failure — high-CV component (std=0.498, mean=0.070)
+        # Old formula: (value - mean) / |mean| = 0.07 / 0.07 = 1.0 (7× amplification)
+        # New formula: (value - mean) / std   = 0.07 / 0.498 ≈ 0.141 (sensible z-score)
+        fp = Fingerprint(stats={"rr": {"mean": 0.070, "std": 0.498, "n": 98}})
+        result = fp.sigma("rr", 0.14)
+        assert result == pytest.approx((0.14 - 0.070) / 0.498, rel=1e-4)  # z-score
+        assert abs(result) < 0.2  # not ±1.0 (the bang-bang range)
+
+    def test_std_zero_falls_back_to_mean_relative(self):
+        # Constant distribution: std=0 → fall back to (value-mean)/|mean|
+        fp = Fingerprint(stats={"rr": {"mean": 1.0, "std": 0.0, "n": 5}})
+        assert fp.sigma("rr", 1.5) == pytest.approx(0.5)  # (1.5-1.0)/1.0
 
 
 class TestFingerprintPrecomputedPercentiles:

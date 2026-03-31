@@ -9,6 +9,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [0.9.18] — 2026-03-30
+
+### Fixed
+
+- `Fingerprint.sigma()`: changed denominator from `|mean|` to `std` (standard z-score); the old formula produced 7.1× amplification for high-CV components (e.g. `recovery_ratio` with std=0.498 / mean=0.070), turning ±0.07 raw swings into ±1.0 signals and driving `proportional_asymmetric` / `proportional_setpoint` controllers into bang-bang saturation; `(value − mean) / std` gives sensible ±0.1–0.2 signals for the same swings; falls back to `(value − mean) / |mean|` when `std=0` (constant window), and returns `value` unchanged when both are zero
+
+---
+
 ## [0.9.17] — 2026-03-30
 
 ### Fixed
