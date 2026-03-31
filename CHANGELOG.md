@@ -9,6 +9,21 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [0.9.16] — 2026-03-30
+
+### Added
+
+- `Fingerprint.sigma(component, value)` → float: normalize a raw measurement against the fingerprint's empirical mean — `(value − mean) / |mean|`; positive = above session baseline, negative = below; closes the normalization loop for cross-session warm starts; returns `value` unchanged when stored mean is zero
+- `Fingerprint.robust_sigma(component, value)` → float: median/IQR normalization — `(value − median) / IQR`; more stable than `sigma()` for high-variance components (e.g. `recovery_ratio` std=0.498 vs mean=0.070); falls back to `sigma()` when IQR is zero (constant window or no raw values stored)
+- `Controller.step_normalized(alpha, component, value, fingerprint, robust=False)`: convenience wrapper that normalizes `value` via `fp.sigma()` (or `fp.robust_sigma()` when `robust=True`) then steps — no warning emitted; per-call `alpha_min`/`alpha_max` override supported
+- `Controller._from_fingerprint` flag: set to `True` by `from_fingerprint()`; visible in `repr()` as `warm=True`
+
+### Fixed
+
+- `Controller.step()` warns (`UserWarning`) when the controller was built with `from_fingerprint()` but receives a raw scalar — fingerprint normalization is inactive in that path, causing warm and cold controllers to behave identically; the warning names the fix (`step_normalized` or `fp.sigma()`)
+
+---
+
 ## [0.9.15] — 2026-03-30
 
 ### Added

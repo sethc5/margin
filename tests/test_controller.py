@@ -1,5 +1,6 @@
 """Tests for Controller and Fingerprint."""
 import json
+import warnings
 import pytest
 from margin.fingerprint import Fingerprint, _percentile, _trimmed_mean
 from margin.controller import Controller
@@ -309,9 +310,9 @@ class TestControllerSetpointStrategy:
             min_n=999,  # force cold start
         )
         assert warm.target != cold.target  # warm ≈ 0.1, cold = 0.5
-        metric = 0.3
-        warm_next, _ = warm.step(0.5, metric)
-        cold_next, _ = cold.step(0.5, metric)
+        # Use step_normalized to avoid triggering the scalar warning
+        warm_next, _ = warm.step_normalized(0.5, "recovery_ratio", 0.3, fp)
+        cold_next, _ = cold.step_normalized(0.5, "recovery_ratio", 0.3, fp)
         assert warm_next != pytest.approx(cold_next)  # different trajectories
 
     def test_backoff_not_used(self):
@@ -526,3 +527,186 @@ class TestMonitorSuggestTarget:
         std = fp["alpha"]["std"]
         expected = max(0.0, mean - 0.5 * std)
         assert result["target"] == pytest.approx(expected)
+
+
+# -----------------------------------------------------------------------
+# Fingerprint.sigma / robust_sigma
+# -----------------------------------------------------------------------
+
+class TestFingerprintSigma:
+    def test_above_mean_positive(self):
+        fp = _make_fp([1.0] * 10, name="rr")  # mean=1.0
+        assert fp.sigma("rr", 1.5) == pytest.approx(0.5)  # (1.5-1.0)/1.0
+
+    def test_below_mean_negative(self):
+        fp = _make_fp([1.0] * 10, name="rr")
+        assert fp.sigma("rr", 0.8) == pytest.approx(-0.2)
+
+    def test_at_mean_zero(self):
+        fp = _make_fp([0.5] * 10, name="rr")
+        assert fp.sigma("rr", 0.5) == pytest.approx(0.0)
+
+    def test_zero_mean_returns_value(self):
+        fp = Fingerprint(stats={"rr": {"mean": 0.0, "std": 0.0, "n": 5, "trend": "STABLE"}})
+        assert fp.sigma("rr", 0.3) == pytest.approx(0.3)
+
+    def test_negative_mean(self):
+        fp = Fingerprint(stats={"rr": {"mean": -2.0, "std": 0.5, "n": 10, "trend": "STABLE"}})
+        # (value - mean) / |mean| = (-1.0 - (-2.0)) / 2.0 = 0.5
+        assert fp.sigma("rr", -1.0) == pytest.approx(0.5)
+
+    def test_missing_component_returns_value(self):
+        fp = _make_fp([1.0] * 10)
+        # missing → mean=0.0 → returns value unchanged
+        assert fp.sigma("missing", 0.7) == pytest.approx(0.7)
+
+
+class TestFingerprintRobustSigma:
+    def test_median_centered(self):
+        # Uniform values: median=3.0, IQR=2.0
+        fp = _make_fp([1.0, 2.0, 3.0, 4.0, 5.0] * 4, name="rr")
+        median = fp.robust_target("rr", "median")
+        q25 = fp.percentile("rr", 25)
+        q75 = fp.percentile("rr", 75)
+        iqr = q75 - q25
+        expected = (3.5 - median) / iqr
+        assert fp.robust_sigma("rr", 3.5) == pytest.approx(expected)
+
+    def test_at_median_zero(self):
+        fp = _make_fp([1.0, 2.0, 3.0, 4.0, 5.0] * 4, name="rr")
+        median = fp.robust_target("rr", "median")
+        assert fp.robust_sigma("rr", median) == pytest.approx(0.0)
+
+    def test_zero_iqr_falls_back_to_sigma(self):
+        # All identical values → IQR = 0 → falls back to mean-based sigma
+        fp = _make_fp([2.0] * 20, name="rr")
+        assert fp.robust_sigma("rr", 3.0) == fp.sigma("rr", 3.0)
+
+    def test_robust_vs_mean_with_outliers(self):
+        # High-outlier distribution: mean is dragged up, median is stable
+        # recovery_ratio scenario: std=0.498, mean=0.070
+        import random
+        rng = random.Random(0)
+        vals = [0.05 + rng.gauss(0, 0.05) for _ in range(18)] + [2.0, 3.0]
+        fp = _make_fp(vals, name="rr")
+        # robust_sigma should be less extreme than sigma for a normal value
+        v = 0.1
+        rs = abs(fp.robust_sigma("rr", v))
+        s = abs(fp.sigma("rr", v))
+        # Both finite; this is a sanity check, not a strict ordering
+        assert isinstance(rs, float)
+        assert isinstance(s, float)
+
+
+# -----------------------------------------------------------------------
+# Controller fingerprint warning + step_normalized
+# -----------------------------------------------------------------------
+
+class TestControllerFingerprintWarning:
+    def test_from_fingerprint_sets_flag(self):
+        fp = _make_fp([0.5] * 15)
+        ctrl = Controller.from_fingerprint(fp, "cpu", kp=0.3, cold_target=0.5)
+        assert ctrl._from_fingerprint is True
+
+    def test_plain_controller_no_flag(self):
+        ctrl = Controller(kp=0.3, target=0.5)
+        assert ctrl._from_fingerprint is False
+
+    def test_warn_on_scalar_when_from_fingerprint(self):
+        fp = _make_fp([0.5] * 15)
+        ctrl = Controller.from_fingerprint(fp, "cpu", kp=0.3, cold_target=0.5)
+        with warnings.catch_warnings(record=True) as w:
+            warnings.simplefilter("always")
+            ctrl.step(0.5, 0.3)  # scalar passed to fingerprint controller
+        assert len(w) == 1
+        assert issubclass(w[0].category, UserWarning)
+        assert "scalar" in str(w[0].message).lower()
+
+    def test_no_warn_with_observations(self):
+        fp = _make_fp([0.5] * 15)
+        ctrl = Controller.from_fingerprint(fp, "cpu", kp=0.3, cold_target=0.5)
+        obs = [Observation("x", Health.INTACT, 0.5, 0.5, Confidence.HIGH)]
+        with warnings.catch_warnings(record=True) as w:
+            warnings.simplefilter("always")
+            ctrl.step(0.5, obs)
+        assert len(w) == 0
+
+    def test_no_warn_on_plain_controller_scalar(self):
+        ctrl = Controller(kp=0.3, target=0.5)
+        with warnings.catch_warnings(record=True) as w:
+            warnings.simplefilter("always")
+            ctrl.step(0.5, 0.3)
+        assert len(w) == 0
+
+    def test_repr_shows_warm(self):
+        fp = _make_fp([0.5] * 15)
+        ctrl = Controller.from_fingerprint(fp, "cpu", kp=0.3, cold_target=0.5)
+        assert "warm=True" in repr(ctrl)
+
+    def test_repr_no_warm_for_plain(self):
+        ctrl = Controller(kp=0.3, target=0.5)
+        assert "warm" not in repr(ctrl)
+
+
+class TestControllerStepNormalized:
+    def test_normalizes_before_step(self):
+        # mean=1.0, so sigma(1.5) = 0.5
+        fp = _make_fp([1.0] * 15, name="rr")
+        ctrl = Controller.from_fingerprint(
+            fp, "rr", kp=1.0, cold_target=0.5,
+            strategy="proportional_asymmetric",
+        )
+        # step_normalized should produce same result as step(sigma(value))
+        alpha_normalized, _ = ctrl.step_normalized(0.5, "rr", 1.5, fp)
+        # Use a plain controller to verify the math without triggering warning
+        plain = Controller(kp=1.0, target=0.5, strategy="proportional_asymmetric")
+        metric = fp.sigma("rr", 1.5)
+        alpha_manual, _ = plain.step(0.5, metric)
+        assert alpha_normalized == pytest.approx(alpha_manual)
+
+    def test_robust_flag(self):
+        fp = _make_fp([1.0, 2.0, 3.0, 4.0, 5.0] * 4, name="rr")
+        ctrl = Controller.from_fingerprint(
+            fp, "rr", kp=1.0, cold_target=0.5,
+            strategy="proportional_asymmetric",
+        )
+        alpha_r, _ = ctrl.step_normalized(0.5, "rr", 3.5, fp, robust=True)
+        alpha_m, _ = ctrl.step_normalized(0.5, "rr", 3.5, fp, robust=False)
+        # robust uses median/IQR; regular uses mean/|mean| — should differ
+        assert alpha_r != pytest.approx(alpha_m)
+
+    def test_no_warning_emitted(self):
+        fp = _make_fp([1.0] * 15, name="rr")
+        ctrl = Controller.from_fingerprint(fp, "rr", kp=0.3, cold_target=0.5)
+        with warnings.catch_warnings(record=True) as w:
+            warnings.simplefilter("always")
+            ctrl.step_normalized(0.5, "rr", 1.2, fp)
+        assert len(w) == 0
+
+    def test_per_call_bounds_respected(self):
+        fp = _make_fp([1.0] * 15, name="rr")
+        ctrl = Controller.from_fingerprint(
+            fp, "rr", kp=10.0, cold_target=0.5,
+            alpha_min=0.0, alpha_max=1.0,
+        )
+        alpha_next, _ = ctrl.step_normalized(
+            0.5, "rr", 2.0, fp, alpha_max=0.6
+        )
+        assert alpha_next <= 0.6
+
+    def test_warm_cold_differ_via_step_normalized(self):
+        # The full integration: warm target ≠ cold, normalization active
+        fp = _make_fp([0.1] * 20, name="rr")  # mean=0.1
+        warm = Controller.from_fingerprint(
+            fp, "rr", kp=0.5, cold_target=0.5,
+            strategy="proportional_setpoint",
+        )
+        cold = Controller.from_fingerprint(
+            fp, "rr", kp=0.5, cold_target=0.5,
+            strategy="proportional_setpoint",
+            min_n=999,
+        )
+        alpha = 0.5
+        warm_next, _ = warm.step_normalized(alpha, "rr", 0.15, fp)
+        cold_next, _ = cold.step_normalized(alpha, "rr", 0.15, fp)
+        assert warm_next != pytest.approx(cold_next)

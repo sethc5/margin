@@ -57,6 +57,11 @@ class Fingerprint(dict):
         fp.robust_target("cpu", "trimmed")   # 10% trimmed mean
         fp.percentile("cpu", 25)             # 25th percentile
 
+    Cross-session normalization::
+
+        fp.sigma("cpu", value)               # (value − mean) / |mean|
+        fp.robust_sigma("cpu", value)        # (value − median) / IQR
+
     The raw ``values`` dict stores per-component float lists from the drift
     window, enabling true median / percentile without re-scanning trackers.
     Raw values are ephemeral (not included in JSON / to_dict output).
@@ -104,6 +109,55 @@ class Fingerprint(dict):
         if not vals:
             return self.get(component, {}).get("mean", 0.0)
         return _percentile(vals, p)
+
+    def sigma(self, component: str, value: float) -> float:
+        """
+        Normalize ``value`` against the fingerprint's empirical mean.
+
+        Returns ``(value − mean) / |mean|``.
+
+        Positive = above session baseline; negative = below.  Used to
+        convert a raw domain measurement into a cross-session comparable
+        signal before passing it to ``Controller.step()``.
+
+        Returns ``value`` unchanged when the stored mean is zero
+        (no finite normalization is possible).
+
+        Example::
+
+            metric = fp.sigma("recovery_ratio", cq.recovery_ratio)
+            alpha, reason = ctrl.step(alpha, metric)
+        """
+        mean = self.get(component, {}).get("mean", 0.0)
+        if mean == 0.0:
+            return value
+        return (value - mean) / abs(mean)
+
+    def robust_sigma(self, component: str, value: float) -> float:
+        """
+        Normalize ``value`` against the fingerprint's empirical median, scaled by IQR.
+
+        Returns ``(value − median) / IQR``.
+
+        More stable than :meth:`sigma` when the distribution has high variance
+        or outliers (e.g. ``recovery_ratio`` std=0.498 vs mean=0.070 — the
+        mean-based sigma would amplify noise).
+
+        Falls back to :meth:`sigma` when IQR is zero (constant window or no
+        raw values stored).
+
+        Example::
+
+            metric = fp.robust_sigma("recovery_ratio", cq.recovery_ratio)
+            alpha, reason = ctrl.step(alpha, metric)
+        """
+        median = self.robust_target(component, "median")
+        q25 = self.percentile(component, 25)
+        q75 = self.percentile(component, 75)
+        iqr = q75 - q25
+        if iqr == 0.0:
+            return self.sigma(component, value)
+        return (value - median) / iqr
 
     def n(self, component: str) -> int:
         """Number of observations for ``component`` in this fingerprint."""
