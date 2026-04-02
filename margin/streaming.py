@@ -470,9 +470,14 @@ class Monitor:
         now: Optional[datetime] = None,
         confidences=None,
         provenance=None,
+        absences=None,
     ) -> Expression:
         """
         Process new measurements: classify health, update drift, check anomalies.
+
+        absences: optional {component: Absence} for components that could not
+                  be measured this step.  Absent observations are included in
+                  the Expression but skipped in drift/anomaly trackers.
 
         Returns the current Expression.
         """
@@ -489,6 +494,7 @@ class Monitor:
         self._expression = self.parser.parse(
             values, label=label, step=self._step,
             confidences=confidences, provenance=provenance,
+            absences=absences,
         )
         self._step += 1
 

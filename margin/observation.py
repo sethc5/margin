@@ -272,6 +272,10 @@ class Expression:
     def intact(self) -> list[Observation]:
         return [o for o in self.observations if o.health == Health.INTACT]
 
+    def absent(self) -> list[Observation]:
+        """Return observations that represent absent values."""
+        return [o for o in self.observations if o.is_absent]
+
     def to_string(self) -> str:
         """Compact bracket notation."""
         groups: dict[str, dict] = {}
@@ -391,6 +395,7 @@ class Parser:
         label: str = "",
         step: Optional[int] = None,
         provenance: Optional[list[str]] = None,
+        absences: Optional[dict[str, Absence]] = None,
     ) -> Expression:
         """
         Parse a set of component measurements into a typed Expression.
@@ -402,12 +407,20 @@ class Parser:
         label:                tag for this expression (e.g. step identifier)
         step:                 step index (set automatically by Monitor)
         provenance:           provenance tags attached to all observations
+        absences:             {component_name: Absence} — components listed here
+                              get an Observation with health=OOD, value=baseline,
+                              and the typed absence reason.  Components in both
+                              ``values`` and ``absences`` are treated as absent
+                              (absence wins).
         """
         confidences = confidences or {}
         provenance = provenance or []
+        absences = absences or {}
 
         observations = []
         for name, val in values.items():
+            if name in absences:
+                continue  # handled below with the other absences
             if name not in self.baselines:
                 warnings.warn(
                     f"Parser.parse: component {name!r} has no baseline — "
@@ -425,6 +438,19 @@ class Parser:
                 confidence=conf, higher_is_better=ct.higher_is_better,
                 provenance=list(provenance),
                 health_label=ct.label_for(h) if ct.labels else None,
+            ))
+
+        # Emit absent observations for components listed in absences
+        for name, reason in absences.items():
+            baseline = self.baselines.get(name, 0.0)
+            ct = self._thresholds_for(name)
+            conf = confidences.get(name, Confidence.INDETERMINATE)
+            observations.append(Observation(
+                name=name, health=Health.OOD, value=baseline, baseline=baseline,
+                confidence=conf, higher_is_better=ct.higher_is_better,
+                provenance=list(provenance),
+                health_label=ct.label_for(Health.OOD) if ct.labels else None,
+                absence=reason,
             ))
 
         corrections = []

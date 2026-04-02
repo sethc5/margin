@@ -9,6 +9,16 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [0.9.23] — 2026-04-02
+
+### Added
+
+- `Parser.parse(absences={...})`: new optional parameter accepts `{component: Absence}` to declare absent components inline with normal measurements; absent observations are emitted with `health=OOD`, `value=baseline`, `confidence=INDETERMINATE` (overridable via `confidences=`); components appearing in both `values` and `absences` are treated as absent (absence wins)
+- `Monitor.update(absences={...})`: passthrough to `Parser.parse()` — absent observations appear in the returned Expression but are skipped in drift/anomaly trackers
+- `Expression.absent()`: returns the list of observations where `is_absent` is True, following the same pattern as `degraded()` and `intact()`
+
+---
+
 ## [0.9.22] — 2026-04-02
 
 ### Added

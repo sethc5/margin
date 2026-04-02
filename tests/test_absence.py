@@ -171,6 +171,30 @@ class TestExpressionWithAbsence:
         expr = Expression(observations=[obs])
         assert expr.degraded() == []
 
+    def test_absent_helper(self):
+        obs_present = _obs(name="temp", value=22.0)
+        obs_absent = _obs(name="co2", absence=Absence.SENSOR_FAILED)
+        expr = Expression(observations=[obs_present, obs_absent])
+        result = expr.absent()
+        assert len(result) == 1
+        assert result[0].name == "co2"
+        assert result[0].absence is Absence.SENSOR_FAILED
+
+    def test_absent_empty_when_all_present(self):
+        obs = _obs(name="temp", value=22.0)
+        expr = Expression(observations=[obs])
+        assert expr.absent() == []
+
+    def test_absent_multiple(self):
+        obs1 = _obs(name="co2", absence=Absence.SENSOR_FAILED)
+        obs2 = _obs(name="ph", absence=Absence.BELOW_DETECTION)
+        obs3 = _obs(name="temp", value=22.0)
+        expr = Expression(observations=[obs1, obs2, obs3])
+        result = expr.absent()
+        assert len(result) == 2
+        names = {o.name for o in result}
+        assert names == {"co2", "ph"}
+
 
 # ---------------------------------------------------------------------------
 # Monitor skips absent observations in trackers
@@ -184,48 +208,6 @@ class TestMonitorAbsenceSkip:
         )
         return Monitor(parser, window=50)
 
-    def test_absent_obs_not_in_drift_window(self):
-        """Absent observations should not enter the drift tracker."""
-        m = self._make_monitor()
-        # Feed 10 normal updates
-        for _ in range(10):
-            m.update({"co2": 400.0, "temp": 22.0})
-        drift_n_before = m._drift_trackers["co2"].n_observations
-
-        # Now manually inject an absent observation into the expression
-        # by constructing one and passing it through update flow.
-        # The simplest way: feed a normal update, then check count.
-        m.update({"co2": 400.0, "temp": 22.0})
-        drift_n_after = m._drift_trackers["co2"].n_observations
-        assert drift_n_after == drift_n_before + 1  # normal obs counted
-
-    def test_absent_obs_excluded_from_drift(self):
-        """
-        When an observation has absence set, Monitor.update() should skip it
-        in drift/anomaly trackers.
-        """
-        m = self._make_monitor()
-        # Feed some normal data
-        for _ in range(5):
-            m.update({"co2": 400.0, "temp": 22.0})
-        n_before = m._drift_trackers["co2"].n_observations
-
-        # Manually set absence on the expression's observations after parse.
-        # This simulates the downstream use case where a caller marks an
-        # observation as absent before it reaches trackers.
-        # Since Parser.parse() never sets absence, we test the guard by
-        # constructing the observation directly and checking the skip path.
-        from margin.observation import Absence as _Absence
-        obs_absent = Observation(
-            name="co2", health=Health.INTACT, value=0.0, baseline=400.0,
-            confidence=Confidence.HIGH, absence=_Absence.SENSOR_FAILED,
-        )
-        # Verify is_absent works
-        assert obs_absent.is_absent is True
-        # The guard in Monitor.update() checks obs.is_absent — we've verified
-        # the field and property work. A full integration test would require
-        # Parser to set absence, which is a future feature.
-
     def test_normal_flow_unaffected(self):
         """Standard update flow still works — no regression from the guard."""
         m = self._make_monitor()
@@ -234,3 +216,170 @@ class TestMonitorAbsenceSkip:
         assert m._drift_trackers["co2"].n_observations == 20
         assert m._drift_trackers["temp"].n_observations == 20
         assert expr is not None
+
+    def test_absent_skipped_in_drift_tracker(self):
+        """Absent observations via absences= should not enter drift tracker."""
+        m = self._make_monitor()
+        for _ in range(5):
+            m.update({"co2": 400.0, "temp": 22.0})
+        n_before = m._drift_trackers["co2"].n_observations
+
+        # co2 absent this step — drift tracker should not advance
+        m.update({"temp": 22.0}, absences={"co2": Absence.SENSOR_FAILED})
+        assert m._drift_trackers["co2"].n_observations == n_before
+        # temp still counted
+        assert m._drift_trackers["temp"].n_observations == 6
+
+    def test_absent_skipped_in_anomaly_tracker(self):
+        """Absent observations should not enter anomaly tracker."""
+        m = self._make_monitor()
+        for _ in range(5):
+            m.update({"co2": 400.0, "temp": 22.0})
+        n_before = m._anomaly_trackers["co2"].n_values
+
+        m.update({"temp": 22.0}, absences={"co2": Absence.NOT_MEASURED})
+        assert m._anomaly_trackers["co2"].n_values == n_before
+
+    def test_absent_appears_in_expression(self):
+        """Even though skipped in trackers, absent obs is in the Expression."""
+        m = self._make_monitor()
+        expr = m.update(
+            {"temp": 22.0},
+            absences={"co2": Absence.SENSOR_FAILED},
+        )
+        assert len(expr.observations) == 2
+        assert len(expr.absent()) == 1
+        assert expr.absent()[0].name == "co2"
+        assert expr.absent()[0].absence is Absence.SENSOR_FAILED
+
+    def test_absent_obs_has_health_ood(self):
+        """Parser emits Health.OOD for absent components."""
+        m = self._make_monitor()
+        expr = m.update(
+            {"temp": 22.0},
+            absences={"co2": Absence.BELOW_DETECTION},
+        )
+        co2 = [o for o in expr.observations if o.name == "co2"][0]
+        assert co2.health is Health.OOD
+        assert co2.is_absent is True
+
+    def test_mixed_present_and_absent_over_time(self):
+        """co2 comes and goes — drift tracker only counts present steps."""
+        m = self._make_monitor()
+        # 3 present
+        for _ in range(3):
+            m.update({"co2": 400.0, "temp": 22.0})
+        # 2 absent
+        for _ in range(2):
+            m.update({"temp": 22.0}, absences={"co2": Absence.PENDING})
+        # 3 more present
+        for _ in range(3):
+            m.update({"co2": 405.0, "temp": 22.0})
+        assert m._drift_trackers["co2"].n_observations == 6  # 3+3, not 8
+        assert m._drift_trackers["temp"].n_observations == 8
+
+
+# ---------------------------------------------------------------------------
+# Parser.parse() with absences parameter
+# ---------------------------------------------------------------------------
+
+class TestParserAbsences:
+    def _make_parser(self):
+        return Parser(
+            baselines={"co2": 400.0, "temp": 22.0, "ph": 7.0},
+            thresholds=Thresholds(intact=0.8, ablated=0.2),
+        )
+
+    def test_no_absences_unchanged(self):
+        p = self._make_parser()
+        expr = p.parse({"co2": 400.0, "temp": 22.0})
+        assert len(expr.observations) == 2
+        assert all(not o.is_absent for o in expr.observations)
+
+    def test_one_absent_component(self):
+        p = self._make_parser()
+        expr = p.parse(
+            {"temp": 22.0},
+            absences={"co2": Absence.SENSOR_FAILED},
+        )
+        assert len(expr.observations) == 2
+        co2 = [o for o in expr.observations if o.name == "co2"][0]
+        assert co2.is_absent is True
+        assert co2.absence is Absence.SENSOR_FAILED
+        assert co2.health is Health.OOD
+        assert co2.value == 400.0  # baseline used as value
+
+    def test_absent_value_equals_baseline(self):
+        p = self._make_parser()
+        expr = p.parse(
+            {"temp": 22.0},
+            absences={"ph": Absence.BELOW_DETECTION},
+        )
+        ph = [o for o in expr.observations if o.name == "ph"][0]
+        assert ph.value == 7.0  # baseline
+        assert ph.sigma == pytest.approx(0.0)  # value == baseline → sigma 0
+
+    def test_absent_confidence_defaults_to_indeterminate(self):
+        p = self._make_parser()
+        expr = p.parse(
+            {"temp": 22.0},
+            absences={"co2": Absence.NOT_MEASURED},
+        )
+        co2 = [o for o in expr.observations if o.name == "co2"][0]
+        assert co2.confidence is Confidence.INDETERMINATE
+
+    def test_absent_confidence_overridable(self):
+        p = self._make_parser()
+        expr = p.parse(
+            {"temp": 22.0},
+            absences={"co2": Absence.NOT_MEASURED},
+            confidences={"co2": Confidence.LOW},
+        )
+        co2 = [o for o in expr.observations if o.name == "co2"][0]
+        assert co2.confidence is Confidence.LOW
+
+    def test_absence_wins_over_value(self):
+        """If a component appears in both values and absences, absence wins."""
+        p = self._make_parser()
+        expr = p.parse(
+            {"co2": 999.0, "temp": 22.0},
+            absences={"co2": Absence.REDACTED},
+        )
+        co2 = [o for o in expr.observations if o.name == "co2"][0]
+        assert co2.is_absent is True
+        assert co2.value == 400.0  # baseline, not the 999.0 that was passed
+
+    def test_all_absent(self):
+        p = self._make_parser()
+        expr = p.parse(
+            {},
+            absences={
+                "co2": Absence.SENSOR_FAILED,
+                "temp": Absence.NOT_MEASURED,
+            },
+        )
+        assert len(expr.observations) == 2
+        assert all(o.is_absent for o in expr.observations)
+
+    def test_absent_unknown_component(self):
+        """Absent component not in baselines still emits an observation."""
+        p = self._make_parser()
+        expr = p.parse(
+            {"temp": 22.0},
+            absences={"humidity": Absence.NOT_APPLICABLE},
+        )
+        hum = [o for o in expr.observations if o.name == "humidity"][0]
+        assert hum.is_absent is True
+        assert hum.value == 0.0  # no baseline → 0.0
+
+    def test_round_trip_absent_observation(self):
+        p = self._make_parser()
+        expr = p.parse(
+            {"temp": 22.0},
+            absences={"co2": Absence.BELOW_DETECTION},
+        )
+        d = expr.to_dict()
+        restored = Expression.from_dict(d)
+        co2 = [o for o in restored.observations if o.name == "co2"][0]
+        assert co2.absence is Absence.BELOW_DETECTION
+        assert co2.is_absent is True
