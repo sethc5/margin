@@ -24,7 +24,7 @@ from .provenance import (
 from .uncertain import UncertainValue, Source, EpistemicSource, UncertaintyMode
 from .algebra import add, subtract, multiply, divide, scale, compare, weighted_average
 from .health import Health, Thresholds, classify, SEVERITY
-from .observation import Op, Observation, Correction, Expression, Parser
+from .observation import Absence, Op, Observation, Correction, Expression, Parser
 from .ledger import Record, Ledger
 
 # Observability
@@ -129,7 +129,7 @@ __all__ = [
     "UncertainValue", "Source",
     "add", "subtract", "multiply", "divide", "scale", "compare", "weighted_average",
     "Health", "Thresholds", "classify", "SEVERITY",
-    "Op", "Observation", "Correction", "Expression", "Parser",
+    "Absence", "Op", "Observation", "Correction", "Expression", "Parser",
     "Record", "Ledger",
     # Observability
     "observe", "observe_many", "delta", "to_uncertain",

@@ -20,6 +20,27 @@ from .confidence import Confidence
 from .health import Health, Thresholds, classify
 
 
+class Absence(Enum):
+    """
+    Why a value is absent.  Distinct from Health — these explain missing data, not bad data.
+
+    NOT_MEASURED:     no attempt to measure (sensor offline, not scheduled)
+    BELOW_DETECTION:  measured but below instrument detection limit
+    ABOVE_RANGE:      measured but above instrument range
+    SENSOR_FAILED:    measurement attempted, hardware error
+    REDACTED:         value exists but withheld (privacy, compliance)
+    NOT_APPLICABLE:   measurement doesn't apply to this entity
+    PENDING:          measurement in progress, not yet available
+    """
+    NOT_MEASURED = "not_measured"
+    BELOW_DETECTION = "below_detection"
+    ABOVE_RANGE = "above_range"
+    SENSOR_FAILED = "sensor_failed"
+    REDACTED = "redacted"
+    NOT_APPLICABLE = "not_applicable"
+    PENDING = "pending"
+
+
 class Op(Enum):
     """
     What corrective operation is being performed.
@@ -61,6 +82,13 @@ class Observation:
     provenance: list[str] = field(default_factory=list)
     measured_at: Optional[datetime] = None
     health_label: Optional[str] = None
+    absence: Optional[Absence] = None
+    absence_detail: Optional[str] = None
+
+    @property
+    def is_absent(self) -> bool:
+        """True if this observation represents an absent value."""
+        return self.absence is not None
 
     @property
     def sigma(self) -> float:
@@ -91,7 +119,9 @@ class Observation:
         return a <= max_age_seconds
 
     def to_atom(self) -> str:
-        """Compact string: NAME:HEALTH(±σ)"""
+        """Compact string: NAME:HEALTH(±σ) or NAME:ABSENT(reason) when absent."""
+        if self.absence is not None:
+            return f"{self.name}:ABSENT({self.absence.value})"
         display = self.health_label or self.health.value
         if self.health == Health.OOD:
             return f"{self.name}:{display}"
@@ -113,6 +143,10 @@ class Observation:
             d["health_label"] = self.health_label
         if self.measured_at is not None:
             d["measured_at"] = self.measured_at.isoformat()
+        if self.absence is not None:
+            d["absence"] = self.absence.value
+        if self.absence_detail is not None:
+            d["absence_detail"] = self.absence_detail
         return d
 
     @classmethod
@@ -120,6 +154,7 @@ class Observation:
         measured_at = None
         if "measured_at" in d:
             measured_at = datetime.fromisoformat(d["measured_at"])
+        absence = Absence(d["absence"]) if "absence" in d else None
         return cls(
             name=d["name"],
             health=Health(d["health"]),
@@ -130,6 +165,8 @@ class Observation:
             provenance=d.get("provenance", []),
             measured_at=measured_at,
             health_label=d.get("health_label"),
+            absence=absence,
+            absence_detail=d.get("absence_detail"),
         )
 
 

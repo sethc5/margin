@@ -9,6 +9,20 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [0.9.22] — 2026-04-02
+
+### Added
+
+- `Absence` enum: typed reason for missing values — `NOT_MEASURED`, `BELOW_DETECTION`, `ABOVE_RANGE`, `SENSOR_FAILED`, `REDACTED`, `NOT_APPLICABLE`, `PENDING`
+- `Observation.absence`: optional `Absence` field (default `None`); absent observations carry a typed reason instead of collapsing to null/NaN or `Health.OOD`
+- `Observation.absence_detail`: optional free-text context (e.g. `"detection limit: 0.001 ppm"`)
+- `Observation.is_absent` property: `True` when `absence` is set
+- `Observation.to_atom()` renders `NAME:ABSENT(reason)` when absence is set
+- `Observation.to_dict()` / `from_dict()` serialize absence fields; old JSON without absence keys deserializes correctly (`absence=None`)
+- `Monitor.update()` skips absent observations in drift and anomaly trackers — prevents missing values from corrupting streaming windows
+
+---
+
 ## [0.9.21] — 2026-03-31
 
 ### Fixed

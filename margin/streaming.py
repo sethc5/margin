@@ -492,8 +492,12 @@ class Monitor:
         )
         self._step += 1
 
-        # Update per-component trackers
+        # Update per-component trackers (skip absent observations —
+        # they carry no measured value and would corrupt drift/anomaly windows)
         for obs in self._expression.observations:
+            if obs.is_absent:
+                continue
+
             name = obs.name
             baseline = self.parser.baselines.get(name, obs.value)
             thresholds = self.parser._thresholds_for(name)
